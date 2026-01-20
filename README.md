@@ -1,11 +1,11 @@
-# TuriX-CUA 自动化平台
+autoflow-platform 自动化平台
 
 企业级浏览器自动化平台，集成 RuoYi-Vue3-FastAPI 后台管理系统和 Automation Framework 自动化框架。
 
 ## 项目结构
 
 ```
-TuriX-CUA-main/
+autoflow-platform /
 ├── RuoYi-Vue3-FastAPI/          # 后台管理系统
 │   ├── ruoyi-fastapi-backend/   # FastAPI 后端
 │   │   ├── module_automation/   # 自动化模块
