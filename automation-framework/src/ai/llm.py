@@ -1,0 +1,312 @@
+"""
+LLM集成 - 统一的LLM接口
+"""
+from typing import Dict, Any, List, Optional, AsyncIterator
+from abc import ABC, abstractmethod
+
+from .config import ModelConfig
+
+
+class LLMProvider(ABC):
+    """LLM提供商抽象基类"""
+    
+    def __init__(self, config: ModelConfig):
+        self.config = config
+        
+    @abstractmethod
+    async def chat(
+        self,
+        messages: List[Dict[str, str]],
+        **kwargs
+    ) -> str:
+        """
+        聊天接口
+        
+        Args:
+            messages: 消息列表
+            **kwargs: 额外参数
+            
+        Returns:
+            模型响应
+        """
+        pass
+    
+    @abstractmethod
+    async def stream(
+        self,
+        messages: List[Dict[str, str]],
+        **kwargs
+    ) -> AsyncIterator[str]:
+        """
+        流式输出接口
+        
+        Args:
+            messages: 消息列表
+            **kwargs: 额外参数
+            
+        Yields:
+            模型响应片段
+        """
+        pass
+
+
+class OpenAIProvider(LLMProvider):
+    """OpenAI API提供商"""
+    
+    def __init__(self, config: ModelConfig):
+        super().__init__(config)
+        try:
+            import openai
+            self.client = openai.AsyncOpenAI(
+                api_key=config.api_key,
+                base_url=config.api_base
+            )
+        except ImportError:
+            raise ImportError("openai package is not installed. Install it with: pip install openai")
+    
+    async def chat(
+        self,
+        messages: List[Dict[str, str]],
+        **kwargs
+    ) -> str:
+        """OpenAI聊天接口"""
+        params = {
+            "model": self.config.model,
+            "messages": messages,
+            **self.config.params,
+            **kwargs
+        }
+        
+        response = await self.client.chat.completions.create(**params)
+        return response.choices[0].message.content
+    
+    async def stream(
+        self,
+        messages: List[Dict[str, str]],
+        **kwargs
+    ) -> AsyncIterator[str]:
+        """OpenAI流式输出"""
+        params = {
+            "model": self.config.model,
+            "messages": messages,
+            "stream": True,
+            **self.config.params,
+            **kwargs
+        }
+        
+        stream = await self.client.chat.completions.create(**params)
+        async for chunk in stream:
+            if chunk.choices[0].delta.content:
+                yield chunk.choices[0].delta.content
+
+
+class AnthropicProvider(LLMProvider):
+    """Anthropic API提供商"""
+    
+    def __init__(self, config: ModelConfig):
+        super().__init__(config)
+        try:
+            import anthropic
+            self.client = anthropic.AsyncAnthropic(
+                api_key=config.api_key,
+                base_url=config.api_base
+            )
+        except ImportError:
+            raise ImportError("anthropic package is not installed. Install it with: pip install anthropic")
+    
+    async def chat(
+        self,
+        messages: List[Dict[str, str]],
+        **kwargs
+    ) -> str:
+        """Anthropic聊天接口"""
+        # 转换消息格式
+        system_message = None
+        converted_messages = []
+        
+        for msg in messages:
+            if msg["role"] == "system":
+                system_message = msg["content"]
+            else:
+                converted_messages.append({
+                    "role": msg["role"],
+                    "content": msg["content"]
+                })
+        
+        params = {
+            "model": self.config.model,
+            "messages": converted_messages,
+            "max_tokens": kwargs.get("max_tokens", 4096),
+            **self.config.params,
+        }
+        
+        if system_message:
+            params["system"] = system_message
+        
+        response = await self.client.messages.create(**params)
+        return response.content[0].text
+    
+    async def stream(
+        self,
+        messages: List[Dict[str, str]],
+        **kwargs
+    ) -> AsyncIterator[str]:
+        """Anthropic流式输出"""
+        # 转换消息格式
+        system_message = None
+        converted_messages = []
+        
+        for msg in messages:
+            if msg["role"] == "system":
+                system_message = msg["content"]
+            else:
+                converted_messages.append({
+                    "role": msg["role"],
+                    "content": msg["content"]
+                })
+        
+        params = {
+            "model": self.config.model,
+            "messages": converted_messages,
+            "max_tokens": kwargs.get("max_tokens", 4096),
+            "stream": True,
+            **self.config.params,
+        }
+        
+        if system_message:
+            params["system"] = system_message
+        
+        async with self.client.messages.stream(**params) as stream:
+            async for text in stream.text_stream:
+                yield text
+
+
+class OllamaProvider(LLMProvider):
+    """Ollama本地模型提供商"""
+    
+    def __init__(self, config: ModelConfig):
+        super().__init__(config)
+        self.api_base = config.api_base or "http://localhost:11434"
+        
+    async def chat(
+        self,
+        messages: List[Dict[str, str]],
+        **kwargs
+    ) -> str:
+        """Ollama聊天接口"""
+        import aiohttp
+        
+        url = f"{self.api_base}/api/chat"
+        payload = {
+            "model": self.config.model,
+            "messages": messages,
+            "stream": False,
+            **self.config.params,
+            **kwargs
+        }
+        
+        async with aiohttp.ClientSession() as session:
+            async with session.post(url, json=payload) as response:
+                data = await response.json()
+                return data["message"]["content"]
+    
+    async def stream(
+        self,
+        messages: List[Dict[str, str]],
+        **kwargs
+    ) -> AsyncIterator[str]:
+        """Ollama流式输出"""
+        import aiohttp
+        import json
+        
+        url = f"{self.api_base}/api/chat"
+        payload = {
+            "model": self.config.model,
+            "messages": messages,
+            "stream": True,
+            **self.config.params,
+            **kwargs
+        }
+        
+        async with aiohttp.ClientSession() as session:
+            async with session.post(url, json=payload) as response:
+                async for line in response.content:
+                    if line:
+                        data = json.loads(line)
+                        if "message" in data and "content" in data["message"]:
+                            yield data["message"]["content"]
+
+
+class QwenProvider(LLMProvider):
+    """Qwen模型提供商（通过OpenAI兼容API）"""
+    
+    def __init__(self, config: ModelConfig):
+        super().__init__(config)
+        try:
+            import openai
+            # Qwen使用OpenAI兼容的API
+            self.client = openai.AsyncOpenAI(
+                api_key=config.api_key,
+                base_url=config.api_base or "https://dashscope.aliyuncs.com/compatible-mode/v1"
+            )
+        except ImportError:
+            raise ImportError("openai package is not installed. Install it with: pip install openai")
+    
+    async def chat(
+        self,
+        messages: List[Dict[str, str]],
+        **kwargs
+    ) -> str:
+        """Qwen聊天接口"""
+        params = {
+            "model": self.config.model,
+            "messages": messages,
+            **self.config.params,
+            **kwargs
+        }
+        
+        response = await self.client.chat.completions.create(**params)
+        return response.choices[0].message.content
+    
+    async def stream(
+        self,
+        messages: List[Dict[str, str]],
+        **kwargs
+    ) -> AsyncIterator[str]:
+        """Qwen流式输出"""
+        params = {
+            "model": self.config.model,
+            "messages": messages,
+            "stream": True,
+            **self.config.params,
+            **kwargs
+        }
+        
+        stream = await self.client.chat.completions.create(**params)
+        async for chunk in stream:
+            if chunk.choices[0].delta.content:
+                yield chunk.choices[0].delta.content
+
+
+def create_llm_provider(config: ModelConfig) -> LLMProvider:
+    """
+    创建LLM提供商
+    
+    Args:
+        config: 模型配置
+        
+    Returns:
+        LLM提供商实例
+    """
+    from .config import ModelProvider
+    
+    if config.provider == ModelProvider.OPENAI:
+        return OpenAIProvider(config)
+    elif config.provider == ModelProvider.ANTHROPIC:
+        return AnthropicProvider(config)
+    elif config.provider == ModelProvider.OLLAMA:
+        return OllamaProvider(config)
+    elif config.provider == ModelProvider.QWEN:
+        return QwenProvider(config)
+    else:
+        raise ValueError(f"Unsupported provider: {config.provider}")

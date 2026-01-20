@@ -1,0 +1,95 @@
+{
+  "current_profile": "qwen_default",
+  "profiles": [
+    {
+      "name": "qwen_default",
+      "task_model": {
+        "provider": "qwen",
+        "model": "qwen-turbo",
+        "api_key": "YOUR_DASHSCOPE_API_KEY",
+        "api_base": "https://dashscope.aliyuncs.com/compatible-mode/v1",
+        "params": {
+          "temperature": 0.7,
+          "max_tokens": 2000
+        }
+      },
+      "vision_model": {
+        "provider": "qwen",
+        "model": "qwen-vl-plus",
+        "api_key": "YOUR_DASHSCOPE_API_KEY",
+        "api_base": "https://dashscope.aliyuncs.com/compatible-mode/v1",
+        "params": {
+          "temperature": 0.7,
+          "max_tokens": 2000
+        }
+      },
+      "fallback_chain": [
+        {
+          "provider": "qwen",
+          "model": "qwen-plus",
+          "api_key": "YOUR_DASHSCOPE_API_KEY",
+          "api_base": "https://dashscope.aliyuncs.com/compatible-mode/v1",
+          "params": {
+            "temperature": 0.7,
+            "max_tokens": 2000
+          }
+        }
+      ],
+      "metadata": {
+        "description": "Qwen模型配置（通义千问）",
+        "created_at": "2026-01-19",
+        "notes": "使用阿里云DashScope API"
+      }
+    },
+    {
+      "name": "qwen_max",
+      "task_model": {
+        "provider": "qwen",
+        "model": "qwen-max",
+        "api_key": "YOUR_DASHSCOPE_API_KEY",
+        "api_base": "https://dashscope.aliyuncs.com/compatible-mode/v1",
+        "params": {
+          "temperature": 0.7,
+          "max_tokens": 4000
+        }
+      },
+      "vision_model": {
+        "provider": "qwen",
+        "model": "qwen-vl-max",
+        "api_key": "YOUR_DASHSCOPE_API_KEY",
+        "api_base": "https://dashscope.aliyuncs.com/compatible-mode/v1",
+        "params": {
+          "temperature": 0.7,
+          "max_tokens": 4000
+        }
+      },
+      "fallback_chain": [
+        {
+          "provider": "qwen",
+          "model": "qwen-plus",
+          "api_key": "YOUR_DASHSCOPE_API_KEY",
+          "api_base": "https://dashscope.aliyuncs.com/compatible-mode/v1",
+          "params": {
+            "temperature": 0.7,
+            "max_tokens": 2000
+          }
+        },
+        {
+          "provider": "qwen",
+          "model": "qwen-turbo",
+          "api_key": "YOUR_DASHSCOPE_API_KEY",
+          "api_base": "https://dashscope.aliyuncs.com/compatible-mode/v1",
+          "params": {
+            "temperature": 0.7,
+            "max_tokens": 2000
+          }
+        }
+      ],
+      "metadata": {
+        "description": "Qwen Max高性能配置",
+        "created_at": "2026-01-19",
+        "notes": "使用最强大的Qwen模型"
+      }
+    }
+  ]
+}

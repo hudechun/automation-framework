@@ -1,0 +1,120 @@
+[build-system]
+requires = ["setuptools>=68.0", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "automation-framework"
+version = "0.1.0"
+description = "桌面与浏览器自动化框架"
+readme = "README.md"
+requires-python = ">=3.10"
+license = {text = "MIT"}
+authors = [
+    {name = "Your Name", email = "your.email@example.com"}
+]
+keywords = ["automation", "browser", "desktop", "playwright", "rpa"]
+classifiers = [
+    "Development Status :: 3 - Alpha",
+    "Intended Audience :: Developers",
+    "License :: OSI Approved :: MIT License",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.10",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+]
+
+dependencies = [
+    "playwright>=1.40.0",
+    "fastapi>=0.104.1",
+    "uvicorn[standard]>=0.24.0",
+    # 已迁移到 SQLAlchemy，不再使用 Tortoise ORM
+    # "tortoise-orm>=0.20.0",  # 已移除
+    # "aiomysql>=0.2.0",  # 已移除
+    # "aerich>=0.7.2",  # 已移除
+    "sqlalchemy>=2.0.0",
+    "asyncmy>=0.2.9",
+    "apscheduler>=3.10.4",
+    "openai>=1.3.0",
+    "anthropic>=0.7.0",
+    "keyring>=24.3.0",
+    "cryptography>=41.0.7",
+    "pydantic>=2.5.0",
+    "python-dotenv>=1.0.0",
+    "aiofiles>=23.2.1",
+    "httpx>=0.25.2",
+    "python-json-logger>=2.0.7",
+    "psutil>=5.9.6",
+    "click>=8.1.7",
+    "rich>=13.7.0",
+    "pyyaml>=6.0.1",
+]
+
+[project.optional-dependencies]
+dev = [
+    "pytest>=7.4.3",
+    "pytest-asyncio>=0.21.1",
+    "pytest-cov>=4.1.0",
+    "black>=23.12.0",
+    "flake8>=6.1.0",
+    "mypy>=1.7.0",
+]
+
+windows = [
+    "pywinauto>=0.6.8",
+]
+
+macos = [
+    "pyobjc-framework-Cocoa>=10.0",
+    "pyobjc-framework-Quartz>=10.0",
+]
+
+linux = [
+    "python-xlib>=0.33",
+    "pyatspi>=2.46.0",
+]
+
+[project.scripts]
+automation = "src.cli:main"
+
+[tool.setuptools]
+packages = ["src"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+python_files = ["test_*.py"]
+python_classes = ["Test*"]
+python_functions = ["test_*"]
+asyncio_mode = "auto"
+addopts = "-v --cov=src --cov-report=html --cov-report=term"
+
+[tool.black]
+line-length = 100
+target-version = ['py310', 'py311', 'py312']
+include = '\.pyi?$'
+extend-exclude = '''
+/(
+  # directories
+  \.eggs
+  | \.git
+  | \.hg
+  | \.mypy_cache
+  | \.tox
+  | \.venv
+  | build
+  | dist
+)/
+'''
+
+[tool.mypy]
+python_version = "3.10"
+warn_return_any = true
+warn_unused_configs = true
+disallow_untyped_defs = true
+ignore_missing_imports = true
+
+# 已迁移到 SQLAlchemy，不再使用 Aerich
+# 数据库迁移请使用 Alembic（与 RuoYi 统一）
+# [tool.aerich]
+# tortoise_orm = "src.models.database.TORTOISE_ORM"
+# location = "./migrations"
+# src_folder = "./."

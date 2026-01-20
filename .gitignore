@@ -1,0 +1,123 @@
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+build/
+develop-eggs/
+dist/
+downloads/
+eggs/
+.eggs/
+lib/
+lib64/
+parts/
+sdist/
+var/
+wheels/
+*.egg-info/
+.installed.cfg
+*.egg
+
+# Virtual Environment
+.venv/
+venv/
+ENV/
+env/
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# 配置文件（包含敏感信息）
+config/config.json
+.env
+RuoYi-Vue3-FastAPI/ruoyi-fastapi-backend/.env.dev
+RuoYi-Vue3-FastAPI/ruoyi-fastapi-backend/.env.prod
+automation-framework/.env
+
+# 日志文件
+*.log
+logs/
+*.log.*
+
+# 数据库
+*.db
+*.sqlite
+*.sqlite3
+
+# 临时文件
+*.tmp
+*.temp
+.DS_Store
+Thumbs.db
+*.bak
+*.backup
+
+# 测试文件
+test_*.py
+check_*.py
+debug_*.py
+list_*.py
+验证*.py
+测试*.html
+
+# 存储文件
+storage/
+uploads/
+downloads/
+vf_admin/
+logs/
+RuoYi-Vue3-FastAPI/ruoyi-fastapi-backend/static/profile/
+automation-framework/storage/
+automation-framework/uploads/
+
+# 截图和视频
+images/
+screenshots/
+videos/
+*.png
+*.jpg
+*.jpeg
+*.gif
+*.mp4
+*.webm
+
+# 测试覆盖率
+.coverage
+htmlcov/
+.pytest_cache/
+
+# Jupyter Notebook
+.ipynb_checkpoints
+
+# 浏览器数据
+.playwright/
+playwright-state/
+
+# Node.js
+node_modules/
+package-lock.json
+.npm
+.eslintcache
+
+# 前端构建产物
+RuoYi-Vue3-FastAPI/ruoyi-fastapi-frontend/dist/
+RuoYi-Vue3-FastAPI/ruoyi-fastapi-frontend/.nuxt/
+RuoYi-Vue3-FastAPI/ruoyi-fastapi-frontend/.output/
+
+# 保留示例文件
+!config/config.example.json
+!.env.example
+!RuoYi-Vue3-FastAPI/.env.example
+!automation-framework/.env.example
+!doc/*.png
+!doc/*.jpg
+!doc/*.gif
+!doc/*.svg
+!**/docs/**/*.png
+!**/docs/**/*.jpg

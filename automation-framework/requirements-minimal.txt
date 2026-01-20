@@ -1,0 +1,39 @@
+# ============================================
+# 最小化依赖（仅核心功能）
+# ============================================
+
+# Web框架
+fastapi==0.104.1
+uvicorn[standard]==0.24.0
+starlette==0.27.0
+websockets==12.0
+
+# 数据库
+tortoise-orm==0.20.0
+aiomysql==0.2.0
+aerich==0.7.2
+
+# 任务调度
+apscheduler==3.10.4
+
+# 浏览器自动化
+playwright==1.40.0
+
+# 工具库
+pydantic==2.5.0
+python-dotenv==1.0.0
+aiofiles==23.2.1
+httpx==0.25.2
+
+# 监控
+psutil==5.9.6
+python-json-logger==2.0.7
+
+# 认证
+pyjwt==2.8.0
+
+# 模板
+jinja2==3.1.2
+
+# 文件上传
+python-multipart==0.0.6
