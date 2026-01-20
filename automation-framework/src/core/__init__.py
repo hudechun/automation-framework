@@ -79,6 +79,13 @@ from .replay import (
     SessionReplayer,
 )
 
+from .action_serializer import (
+    serialize_action,
+    deserialize_action,
+    serialize_actions,
+    deserialize_actions,
+)
+
 __all__ = [
     # 枚举类型
     "ActionType",
@@ -143,4 +150,9 @@ __all__ = [
     "ActionRecord",
     "SessionRecorder",
     "SessionReplayer",
+    # Action序列化
+    "serialize_action",
+    "deserialize_action",
+    "serialize_actions",
+    "deserialize_actions",
 ]

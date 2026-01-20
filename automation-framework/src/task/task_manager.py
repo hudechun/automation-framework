@@ -1,13 +1,21 @@
 """
-任务管理器 - 管理任务的创建、更新、删除和执行
+任务管理器 - 管理任务的创建、更新、删除和执行（数据库持久化版本）
 """
 from typing import Dict, Any, List, Optional
 from datetime import datetime
-from enum import Enum
 import uuid
+import logging
+
+from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy import select, update, delete, func
+from sqlalchemy.orm import selectinload
 
 from ..core.types import TaskStatus, DriverType
 from ..core.interfaces import Action
+from ..core.action_serializer import serialize_actions, deserialize_actions
+from ..models.sqlalchemy_models import Task as TaskModel
+
+logger = logging.getLogger(__name__)
 
 
 class Task:
@@ -23,7 +31,11 @@ class Task:
         driver_type: DriverType = DriverType.BROWSER,
         actions: Optional[List[Action]] = None,
         config: Optional[Dict[str, Any]] = None,
-        metadata: Optional[Dict[str, Any]] = None
+        metadata: Optional[Dict[str, Any]] = None,
+        status: TaskStatus = TaskStatus.PENDING,
+        created_at: Optional[datetime] = None,
+        updated_at: Optional[datetime] = None,
+        error: Optional[str] = None
     ):
         self.id = task_id or str(uuid.uuid4())
         self.name = name
@@ -32,10 +44,10 @@ class Task:
         self.actions = actions or []
         self.config = config or {}
         self.metadata = metadata or {}
-        self.status = TaskStatus.PENDING
-        self.created_at = datetime.now()
-        self.updated_at = datetime.now()
-        self.error: Optional[str] = None
+        self.status = status
+        self.created_at = created_at or datetime.now()
+        self.updated_at = updated_at or datetime.now()
+        self.error = error
         
     def validate(self) -> bool:
         """
@@ -59,7 +71,7 @@ class Task:
     def to_dict(self) -> Dict[str, Any]:
         """序列化为字典"""
         return {
-            "id": self.id,
+            "id": str(self.id),
             "name": self.name,
             "description": self.description,
             "driver_type": self.driver_type.value,
@@ -67,9 +79,61 @@ class Task:
             "config": self.config,
             "metadata": self.metadata,
             "status": self.status.value,
-            "created_at": self.created_at.isoformat(),
-            "updated_at": self.updated_at.isoformat(),
+            "created_at": self.created_at.isoformat() if self.created_at else None,
+            "updated_at": self.updated_at.isoformat() if self.updated_at else None,
             "error": self.error,
+        }
+    
+    @classmethod
+    def from_db_model(cls, db_task: TaskModel) -> "Task":
+        """
+        从数据库模型创建Task对象
+        
+        Args:
+            db_task: 数据库任务模型
+            
+        Returns:
+            Task对象
+        """
+        # 反序列化actions
+        actions = []
+        if db_task.actions:
+            try:
+                actions = deserialize_actions(db_task.actions)
+            except Exception as e:
+                logger.error(f"Failed to deserialize actions for task {db_task.id}: {e}")
+                actions = []
+        
+        task = cls(
+            task_id=str(db_task.id),
+            name=db_task.name,
+            description=db_task.description or "",
+            driver_type=DriverType(db_task.task_type),
+            actions=actions,
+            config=db_task.config or {},
+            metadata={},  # metadata可以存储在config中
+            status=TaskStatus(db_task.status),
+            created_at=db_task.created_at,
+            updated_at=db_task.updated_at,
+            error=None  # 错误信息可以存储在config中
+        )
+        return task
+    
+    def to_db_model(self) -> Dict[str, Any]:
+        """
+        转换为数据库模型字典（用于创建/更新）
+        
+        Returns:
+            字典，包含数据库字段
+        """
+        return {
+            "name": self.name,
+            "description": self.description,
+            "task_type": self.driver_type.value,
+            "actions": serialize_actions(self.actions),
+            "config": self.config,
+            "status": self.status.value,
+            "updated_at": datetime.now(),
         }
         
     @classmethod
@@ -84,32 +148,43 @@ class Task:
             metadata=data.get("metadata", {})
         )
         task.status = TaskStatus(data["status"])
-        task.created_at = datetime.fromisoformat(data["created_at"])
-        task.updated_at = datetime.fromisoformat(data["updated_at"])
+        if "created_at" in data and data["created_at"]:
+            task.created_at = datetime.fromisoformat(data["created_at"])
+        if "updated_at" in data and data["updated_at"]:
+            task.updated_at = datetime.fromisoformat(data["updated_at"])
         task.error = data.get("error")
-        # Note: actions需要从registry重建
+        # actions需要从序列化数据重建
+        if "actions" in data:
+            task.actions = deserialize_actions(data["actions"])
         return task
 
 
 class TaskManager:
     """
-    任务管理器 - 管理所有任务的CRUD操作
+    任务管理器 - 管理所有任务的CRUD操作（数据库持久化版本）
     """
     
-    def __init__(self):
-        self._tasks: Dict[str, Task] = {}
+    def __init__(self, db_session: Optional[AsyncSession] = None):
+        """
+        初始化任务管理器
         
-    def create_task(
+        Args:
+            db_session: 数据库会话（如果为None，需要在每个方法中传入）
+        """
+        self._db_session = db_session
+        
+    async def create_task(
         self,
         name: str,
         description: str = "",
         driver_type: DriverType = DriverType.BROWSER,
         actions: Optional[List[Action]] = None,
         config: Optional[Dict[str, Any]] = None,
-        metadata: Optional[Dict[str, Any]] = None
+        metadata: Optional[Dict[str, Any]] = None,
+        db_session: Optional[AsyncSession] = None
     ) -> Task:
         """
-        创建任务
+        创建任务并保存到数据库
         
         Args:
             name: 任务名称
@@ -118,47 +193,86 @@ class TaskManager:
             actions: 操作列表
             config: 配置
             metadata: 元数据
+            db_session: 数据库会话（如果为None，使用初始化时的会话）
             
         Returns:
             创建的任务
         """
+        db = db_session or self._db_session
+        if not db:
+            raise ValueError("Database session is required")
+        
+        # 创建任务对象
         task = Task(
             name=name,
             description=description,
             driver_type=driver_type,
-            actions=actions,
-            config=config,
-            metadata=metadata
+            actions=actions or [],
+            config=config or {},
+            metadata=metadata or {}
         )
         
         # 验证任务
         task.validate()
         
-        # 保存任务
-        self._tasks[task.id] = task
+        # 创建数据库模型
+        db_task = TaskModel(**task.to_db_model())
+        db.add(db_task)
+        await db.commit()
+        await db.refresh(db_task)
         
+        # 从数据库模型创建Task对象
+        task.id = str(db_task.id)
+        task.created_at = db_task.created_at
+        task.updated_at = db_task.updated_at
+        
+        logger.info(f"Created task: {task.id} - {task.name}")
         return task
         
-    def get_task(self, task_id: str) -> Optional[Task]:
+    async def get_task(
+        self,
+        task_id: str,
+        db_session: Optional[AsyncSession] = None
+    ) -> Optional[Task]:
         """
-        获取任务
+        从数据库获取任务
         
         Args:
             task_id: 任务ID
+            db_session: 数据库会话（如果为None，使用初始化时的会话）
             
         Returns:
             任务对象，如果不存在返回None
         """
-        return self._tasks.get(task_id)
+        db = db_session or self._db_session
+        if not db:
+            raise ValueError("Database session is required")
         
-    def update_task(
+        try:
+            task_id_int = int(task_id)
+        except ValueError:
+            logger.warning(f"Invalid task_id: {task_id}")
+            return None
+        
+        result = await db.execute(
+            select(TaskModel).where(TaskModel.id == task_id_int)
+        )
+        db_task = result.scalar_one_or_none()
+        
+        if not db_task:
+            return None
+        
+        return Task.from_db_model(db_task)
+        
+    async def update_task(
         self,
         task_id: str,
         name: Optional[str] = None,
         description: Optional[str] = None,
         actions: Optional[List[Action]] = None,
         config: Optional[Dict[str, Any]] = None,
-        metadata: Optional[Dict[str, Any]] = None
+        metadata: Optional[Dict[str, Any]] = None,
+        db_session: Optional[AsyncSession] = None
     ) -> Optional[Task]:
         """
         更新任务
@@ -170,14 +284,21 @@ class TaskManager:
             actions: 新操作列表
             config: 新配置
             metadata: 新元数据
+            db_session: 数据库会话（如果为None，使用初始化时的会话）
             
         Returns:
             更新后的任务，如果不存在返回None
         """
-        task = self._tasks.get(task_id)
+        db = db_session or self._db_session
+        if not db:
+            raise ValueError("Database session is required")
+        
+        # 获取现有任务
+        task = await self.get_task(task_id, db_session=db)
         if not task:
             return None
         
+        # 更新字段
         if name is not None:
             task.name = name
         if description is not None:
@@ -194,61 +315,109 @@ class TaskManager:
         # 验证更新后的任务
         task.validate()
         
+        # 更新数据库
+        try:
+            task_id_int = int(task_id)
+        except ValueError:
+            return None
+        
+        update_data = task.to_db_model()
+        await db.execute(
+            update(TaskModel)
+            .where(TaskModel.id == task_id_int)
+            .values(**update_data)
+        )
+        await db.commit()
+        
+        logger.info(f"Updated task: {task_id} - {task.name}")
         return task
         
-    def delete_task(self, task_id: str) -> bool:
+    async def delete_task(
+        self,
+        task_id: str,
+        db_session: Optional[AsyncSession] = None
+    ) -> bool:
         """
         删除任务
         
         Args:
             task_id: 任务ID
+            db_session: 数据库会话（如果为None，使用初始化时的会话）
             
         Returns:
             是否删除成功
         """
-        if task_id in self._tasks:
-            del self._tasks[task_id]
-            return True
-        return False
+        db = db_session or self._db_session
+        if not db:
+            raise ValueError("Database session is required")
         
-    def list_tasks(
+        try:
+            task_id_int = int(task_id)
+        except ValueError:
+            return False
+        
+        result = await db.execute(
+            delete(TaskModel).where(TaskModel.id == task_id_int)
+        )
+        await db.commit()
+        
+        deleted = result.rowcount > 0
+        if deleted:
+            logger.info(f"Deleted task: {task_id}")
+        return deleted
+        
+    async def list_tasks(
         self,
         status: Optional[TaskStatus] = None,
         driver_type: Optional[DriverType] = None,
         limit: int = 100,
-        offset: int = 0
+        offset: int = 0,
+        db_session: Optional[AsyncSession] = None
     ) -> List[Task]:
         """
-        列出任务（支持分页和过滤）
+        从数据库列出任务（支持分页和过滤）
         
         Args:
             status: 状态过滤
             driver_type: 驱动类型过滤
             limit: 每页数量
             offset: 偏移量
+            db_session: 数据库会话（如果为None，使用初始化时的会话）
             
         Returns:
             任务列表
         """
-        tasks = list(self._tasks.values())
+        db = db_session or self._db_session
+        if not db:
+            raise ValueError("Database session is required")
         
-        # 过滤
+        # 构建查询
+        query = select(TaskModel)
+        
+        # 添加过滤条件
         if status:
-            tasks = [t for t in tasks if t.status == status]
+            query = query.where(TaskModel.status == status.value)
         if driver_type:
-            tasks = [t for t in tasks if t.driver_type == driver_type]
+            query = query.where(TaskModel.task_type == driver_type.value)
         
-        # 排序（按创建时间倒序）
-        tasks.sort(key=lambda t: t.created_at, reverse=True)
+        # 排序和分页
+        query = query.order_by(TaskModel.created_at.desc()).limit(limit).offset(offset)
         
-        # 分页
-        return tasks[offset:offset + limit]
+        # 执行查询
+        result = await db.execute(query)
+        db_tasks = result.scalars().all()
         
-    def update_task_status(
+        # 转换为Task对象
+        tasks = [Task.from_db_model(db_task) for db_task in db_tasks]
+        
+        return tasks
+        
+    async def update_task_status(
         self,
         task_id: str,
         status: TaskStatus,
-        error: Optional[str] = None
+        error: Optional[str] = None,
+        db_session: Optional[AsyncSession] = None
     ) -> Optional[Task]:
         """
         更新任务状态
@@ -257,33 +426,73 @@ class TaskManager:
             task_id: 任务ID
             status: 新状态
             error: 错误信息（如果有）
+            db_session: 数据库会话（如果为None，使用初始化时的会话）
             
         Returns:
             更新后的任务，如果不存在返回None
         """
-        task = self._tasks.get(task_id)
-        if not task:
+        db = db_session or self._db_session
+        if not db:
+            raise ValueError("Database session is required")
+        
+        try:
+            task_id_int = int(task_id)
+        except ValueError:
             return None
         
-        task.status = status
-        task.error = error
-        task.updated_at = datetime.now()
+        # 更新状态
+        update_data = {
+            "status": status.value,
+            "updated_at": datetime.now()
+        }
         
-        return task
+        # 如果有错误信息，存储到config中
+        if error:
+            # 先获取现有任务
+            task = await self.get_task(task_id, db_session=db)
+            if task:
+                task.config = task.config or {}
+                task.config["error"] = error
+                update_data["config"] = task.config
         
-    def get_statistics(self) -> Dict[str, Any]:
+        await db.execute(
+            update(TaskModel)
+            .where(TaskModel.id == task_id_int)
+            .values(**update_data)
+        )
+        await db.commit()
+        
+        # 返回更新后的任务
+        return await self.get_task(task_id, db_session=db)
+        
+    async def get_statistics(
+        self,
+        db_session: Optional[AsyncSession] = None
+    ) -> Dict[str, Any]:
         """
         获取任务统计信息
         
+        Args:
+            db_session: 数据库会话（如果为None，使用初始化时的会话）
+            
         Returns:
             统计信息
         """
-        total = len(self._tasks)
-        status_counts = {}
+        db = db_session or self._db_session
+        if not db:
+            raise ValueError("Database session is required")
         
+        # 总数
+        total_result = await db.execute(select(func.count(TaskModel.id)))
+        total = total_result.scalar() or 0
+        
+        # 按状态统计
+        status_counts = {}
         for status in TaskStatus:
-            count = len([t for t in self._tasks.values() if t.status == status])
-            status_counts[status.value] = count
+            count_result = await db.execute(
+                select(func.count(TaskModel.id)).where(TaskModel.status == status.value)
+            )
+            status_counts[status.value] = count_result.scalar() or 0
         
         return {
             "total": total,
@@ -291,13 +500,21 @@ class TaskManager:
         }
 
 
-# 全局任务管理器实例
+# 全局任务管理器实例（注意：需要在使用时传入db_session）
 _global_task_manager: Optional[TaskManager] = None
 
 
-def get_global_task_manager() -> TaskManager:
-    """获取全局任务管理器"""
+def get_global_task_manager(db_session: Optional[AsyncSession] = None) -> TaskManager:
+    """
+    获取全局任务管理器
+    
+    Args:
+        db_session: 数据库会话（如果提供，会创建新的管理器实例）
+        
+    Returns:
+        任务管理器实例
+    """
     global _global_task_manager
-    if _global_task_manager is None:
-        _global_task_manager = TaskManager()
+    if _global_task_manager is None or db_session is not None:
+        _global_task_manager = TaskManager(db_session=db_session)
     return _global_task_manager

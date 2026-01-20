@@ -1,10 +1,14 @@
 """
-任务调度器 - 基于APScheduler实现定时任务调度
+任务调度器 - 基于APScheduler实现定时任务调度（数据库持久化版本）
 """
 from typing import Dict, Any, List, Optional, Callable
 from datetime import datetime
 from enum import Enum
 import uuid
+import logging
+
+from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy import select, update, delete
 
 try:
     from apscheduler.schedulers.asyncio import AsyncIOScheduler
@@ -20,6 +24,10 @@ except ImportError:
     IntervalTrigger = None
     DateTrigger = None
     Job = None
+
+from ..models.sqlalchemy_models import Schedule as ScheduleModel
+
+logger = logging.getLogger(__name__)
 
 
 class ScheduleType(Enum):
@@ -41,7 +49,11 @@ class TaskSchedule:
         schedule_type: ScheduleType = ScheduleType.ONCE,
         trigger_config: Optional[Dict[str, Any]] = None,
         enabled: bool = True,
-        metadata: Optional[Dict[str, Any]] = None
+        metadata: Optional[Dict[str, Any]] = None,
+        created_at: Optional[datetime] = None,
+        updated_at: Optional[datetime] = None,
+        last_run: Optional[datetime] = None,
+        next_run: Optional[datetime] = None
     ):
         self.id = schedule_id or str(uuid.uuid4())
         self.task_id = task_id
@@ -49,10 +61,51 @@ class TaskSchedule:
         self.trigger_config = trigger_config or {}
         self.enabled = enabled
         self.metadata = metadata or {}
-        self.created_at = datetime.now()
-        self.updated_at = datetime.now()
-        self.last_run: Optional[datetime] = None
-        self.next_run: Optional[datetime] = None
+        self.created_at = created_at or datetime.now()
+        self.updated_at = updated_at or datetime.now()
+        self.last_run = last_run
+        self.next_run = next_run
+    
+    @classmethod
+    def from_db_model(cls, db_schedule: ScheduleModel) -> "TaskSchedule":
+        """
+        从数据库模型创建TaskSchedule对象
+        
+        Args:
+            db_schedule: 数据库调度模型
+            
+        Returns:
+            TaskSchedule对象
+        """
+        return cls(
+            schedule_id=str(db_schedule.id),
+            task_id=str(db_schedule.task_id),
+            schedule_type=ScheduleType(db_schedule.schedule_type),
+            trigger_config=db_schedule.schedule_config or {},
+            enabled=db_schedule.enabled,
+            metadata={},  # metadata可以存储在schedule_config中
+            created_at=db_schedule.created_at,
+            updated_at=db_schedule.updated_at,
+            last_run=db_schedule.last_run_time,
+            next_run=db_schedule.next_run_time
+        )
+    
+    def to_db_model(self) -> Dict[str, Any]:
+        """
+        转换为数据库模型字典（用于创建/更新）
+        
+        Returns:
+            字典，包含数据库字段
+        """
+        return {
+            "task_id": int(self.task_id) if self.task_id.isdigit() else None,
+            "schedule_type": self.schedule_type.value,
+            "schedule_config": self.trigger_config,
+            "enabled": self.enabled,
+            "next_run_time": self.next_run,
+            "last_run_time": self.last_run,
+            "updated_at": datetime.now(),
+        }
         
     def to_dict(self) -> Dict[str, Any]:
         """序列化为字典"""
@@ -72,23 +125,41 @@ class TaskSchedule:
 
 class TaskScheduler:
     """
-    任务调度器 - 管理定时任务的调度
+    任务调度器 - 管理定时任务的调度（数据库持久化版本）
     """
     
-    def __init__(self):
+    def __init__(self, db_session: Optional[AsyncSession] = None):
+        """
+        初始化任务调度器
+        
+        Args:
+            db_session: 数据库会话（如果为None，需要在每个方法中传入）
+        """
         if not APSCHEDULER_AVAILABLE:
             raise ImportError("APScheduler is not installed. Please install it with: pip install apscheduler")
         
         self.scheduler = AsyncIOScheduler()
+        self._db_session = db_session
         self._schedules: Dict[str, TaskSchedule] = {}
         self._jobs: Dict[str, Job] = {}
         self._running = False
         
-    def start_scheduler(self) -> None:
-        """启动调度器"""
+    async def start_scheduler(self, db_session: Optional[AsyncSession] = None) -> None:
+        """
+        启动调度器并加载数据库中的调度
+        
+        Args:
+            db_session: 数据库会话（如果为None，使用初始化时的会话）
+        """
         if not self._running:
+            db = db_session or self._db_session
+            if db:
+                # 从数据库加载所有启用的调度
+                await self._load_schedules_from_db(db)
+            
             self.scheduler.start()
             self._running = True
+            logger.info("Task scheduler started")
             
     def stop_scheduler(self) -> None:
         """停止调度器"""
@@ -96,12 +167,13 @@ class TaskScheduler:
             self.scheduler.shutdown()
             self._running = False
             
-    def schedule_once(
+    async def schedule_once(
         self,
         task_id: str,
         run_date: datetime,
         callback: Callable,
-        metadata: Optional[Dict[str, Any]] = None
+        metadata: Optional[Dict[str, Any]] = None,
+        db_session: Optional[AsyncSession] = None
     ) -> str:
         """
         调度一次性任务
@@ -115,12 +187,24 @@ class TaskScheduler:
         Returns:
             调度ID
         """
+        # 创建调度对象
         schedule = TaskSchedule(
             task_id=task_id,
             schedule_type=ScheduleType.ONCE,
             trigger_config={"run_date": run_date.isoformat()},
             metadata=metadata
         )
+        
+        # 保存到数据库
+        db = db_session or self._db_session
+        if db:
+            db_schedule = ScheduleModel(**schedule.to_db_model())
+            db.add(db_schedule)
+            await db.commit()
+            await db.refresh(db_schedule)
+            schedule.id = str(db_schedule.id)
+            schedule.created_at = db_schedule.created_at
+            schedule.updated_at = db_schedule.updated_at
         
         # 添加到APScheduler
         trigger = DateTrigger(run_date=run_date)
@@ -131,20 +215,32 @@ class TaskScheduler:
             args=[task_id]
         )
         
-        self._schedules[schedule.id] = schedule
-        self._jobs[schedule.id] = job
         schedule.next_run = job.next_run_time
         
+        # 更新数据库中的next_run_time
+        if db:
+            await db.execute(
+                update(ScheduleModel)
+                .where(ScheduleModel.id == int(schedule.id))
+                .values(next_run_time=schedule.next_run)
+            )
+            await db.commit()
+        
+        self._schedules[schedule.id] = schedule
+        self._jobs[schedule.id] = job
+        
+        logger.info(f"Created once schedule: {schedule.id} for task {task_id}")
         return schedule.id
         
-    def schedule_interval(
+    async def schedule_interval(
         self,
         task_id: str,
         interval_seconds: int,
         callback: Callable,
         start_date: Optional[datetime] = None,
         end_date: Optional[datetime] = None,
-        metadata: Optional[Dict[str, Any]] = None
+        metadata: Optional[Dict[str, Any]] = None,
+        db_session: Optional[AsyncSession] = None
     ) -> str:
         """
         调度周期性任务
@@ -160,6 +256,7 @@ class TaskScheduler:
         Returns:
             调度ID
         """
+        # 创建调度对象
         schedule = TaskSchedule(
             task_id=task_id,
             schedule_type=ScheduleType.INTERVAL,
@@ -170,6 +267,17 @@ class TaskScheduler:
             },
             metadata=metadata
         )
+        
+        # 保存到数据库
+        db = db_session or self._db_session
+        if db:
+            db_schedule = ScheduleModel(**schedule.to_db_model())
+            db.add(db_schedule)
+            await db.commit()
+            await db.refresh(db_schedule)
+            schedule.id = str(db_schedule.id)
+            schedule.created_at = db_schedule.created_at
+            schedule.updated_at = db_schedule.updated_at
         
         # 添加到APScheduler
         trigger = IntervalTrigger(
@@ -184,20 +292,32 @@ class TaskScheduler:
             args=[task_id]
         )
         
-        self._schedules[schedule.id] = schedule
-        self._jobs[schedule.id] = job
         schedule.next_run = job.next_run_time
         
+        # 更新数据库中的next_run_time
+        if db:
+            await db.execute(
+                update(ScheduleModel)
+                .where(ScheduleModel.id == int(schedule.id))
+                .values(next_run_time=schedule.next_run)
+            )
+            await db.commit()
+        
+        self._schedules[schedule.id] = schedule
+        self._jobs[schedule.id] = job
+        
+        logger.info(f"Created interval schedule: {schedule.id} for task {task_id}")
         return schedule.id
         
-    def schedule_cron(
+    async def schedule_cron(
         self,
         task_id: str,
         cron_expression: str,
         callback: Callable,
         start_date: Optional[datetime] = None,
         end_date: Optional[datetime] = None,
-        metadata: Optional[Dict[str, Any]] = None
+        metadata: Optional[Dict[str, Any]] = None,
+        db_session: Optional[AsyncSession] = None
     ) -> str:
         """
         调度Cron任务
@@ -213,6 +333,7 @@ class TaskScheduler:
         Returns:
             调度ID
         """
+        # 创建调度对象
         schedule = TaskSchedule(
             task_id=task_id,
             schedule_type=ScheduleType.CRON,
@@ -223,6 +344,17 @@ class TaskScheduler:
             },
             metadata=metadata
         )
+        
+        # 保存到数据库
+        db = db_session or self._db_session
+        if db:
+            db_schedule = ScheduleModel(**schedule.to_db_model())
+            db.add(db_schedule)
+            await db.commit()
+            await db.refresh(db_schedule)
+            schedule.id = str(db_schedule.id)
+            schedule.created_at = db_schedule.created_at
+            schedule.updated_at = db_schedule.updated_at
         
         # 解析Cron表达式
         parts = cron_expression.split()
@@ -248,18 +380,34 @@ class TaskScheduler:
             args=[task_id]
         )
         
-        self._schedules[schedule.id] = schedule
-        self._jobs[schedule.id] = job
         schedule.next_run = job.next_run_time
         
+        # 更新数据库中的next_run_time
+        if db:
+            await db.execute(
+                update(ScheduleModel)
+                .where(ScheduleModel.id == int(schedule.id))
+                .values(next_run_time=schedule.next_run)
+            )
+            await db.commit()
+        
+        self._schedules[schedule.id] = schedule
+        self._jobs[schedule.id] = job
+        
+        logger.info(f"Created cron schedule: {schedule.id} for task {task_id}")
         return schedule.id
         
-    def cancel_schedule(self, schedule_id: str) -> bool:
+    async def cancel_schedule(
+        self,
+        schedule_id: str,
+        db_session: Optional[AsyncSession] = None
+    ) -> bool:
         """
         取消调度
         
         Args:
             schedule_id: 调度ID
+            db_session: 数据库会话（如果为None，使用初始化时的会话）
             
         Returns:
             是否取消成功
@@ -270,63 +418,148 @@ class TaskScheduler:
                 self.scheduler.remove_job(schedule_id)
                 del self._jobs[schedule_id]
             
+            # 从数据库删除
+            db = db_session or self._db_session
+            if db:
+                try:
+                    await db.execute(
+                        delete(ScheduleModel).where(ScheduleModel.id == int(schedule_id))
+                    )
+                    await db.commit()
+                except (ValueError, TypeError):
+                    # 如果schedule_id不是数字，尝试通过其他方式查找
+                    pass
+            
             del self._schedules[schedule_id]
+            logger.info(f"Cancelled schedule: {schedule_id}")
             return True
         return False
         
-    def list_schedules(
+    async def list_schedules(
         self,
         task_id: Optional[str] = None,
-        enabled: Optional[bool] = None
+        enabled: Optional[bool] = None,
+        db_session: Optional[AsyncSession] = None
     ) -> List[TaskSchedule]:
         """
-        列出调度
+        从数据库列出调度
         
         Args:
             task_id: 任务ID过滤
             enabled: 启用状态过滤
+            db_session: 数据库会话（如果为None，使用初始化时的会话）
             
         Returns:
             调度列表
         """
-        schedules = list(self._schedules.values())
+        db = db_session or self._db_session
+        if not db:
+            # 如果没有数据库会话，返回内存中的调度
+            schedules = list(self._schedules.values())
+            if task_id:
+                schedules = [s for s in schedules if s.task_id == task_id]
+            if enabled is not None:
+                schedules = [s for s in schedules if s.enabled == enabled]
+            return schedules
+        
+        # 从数据库查询
+        query = select(ScheduleModel)
         
         if task_id:
-            schedules = [s for s in schedules if s.task_id == task_id]
+            try:
+                task_id_int = int(task_id)
+                query = query.where(ScheduleModel.task_id == task_id_int)
+            except (ValueError, TypeError):
+                # 如果task_id不是数字，返回空列表
+                return []
+        
         if enabled is not None:
-            schedules = [s for s in schedules if s.enabled == enabled]
+            query = query.where(ScheduleModel.enabled == enabled)
+        
+        result = await db.execute(query)
+        db_schedules = result.scalars().all()
+        
+        # 转换为TaskSchedule对象
+        schedules = [TaskSchedule.from_db_model(db_schedule) for db_schedule in db_schedules]
+        
+        # 同步到内存（用于快速访问）
+        for schedule in schedules:
+            self._schedules[schedule.id] = schedule
         
         return schedules
         
-    def get_schedule(self, schedule_id: str) -> Optional[TaskSchedule]:
+    async def get_schedule(
+        self,
+        schedule_id: str,
+        db_session: Optional[AsyncSession] = None
+    ) -> Optional[TaskSchedule]:
         """
-        获取调度
+        从数据库获取调度
         
         Args:
             schedule_id: 调度ID
+            db_session: 数据库会话（如果为None，使用初始化时的会话）
             
         Returns:
             调度对象，如果不存在返回None
         """
-        return self._schedules.get(schedule_id)
+        # 先检查内存
+        if schedule_id in self._schedules:
+            return self._schedules[schedule_id]
         
-    def update_schedule_status(self, schedule_id: str, enabled: bool) -> Optional[TaskSchedule]:
+        # 从数据库查询
+        db = db_session or self._db_session
+        if db:
+            try:
+                result = await db.execute(
+                    select(ScheduleModel).where(ScheduleModel.id == int(schedule_id))
+                )
+                db_schedule = result.scalar_one_or_none()
+                if db_schedule:
+                    schedule = TaskSchedule.from_db_model(db_schedule)
+                    self._schedules[schedule.id] = schedule
+                    return schedule
+            except (ValueError, TypeError):
+                pass
+        
+        return None
+        
+    async def update_schedule_status(
+        self,
+        schedule_id: str,
+        enabled: bool,
+        db_session: Optional[AsyncSession] = None
+    ) -> Optional[TaskSchedule]:
         """
         更新调度状态
         
         Args:
             schedule_id: 调度ID
             enabled: 是否启用
+            db_session: 数据库会话（如果为None，使用初始化时的会话）
             
         Returns:
             更新后的调度，如果不存在返回None
         """
-        schedule = self._schedules.get(schedule_id)
+        schedule = await self.get_schedule(schedule_id, db_session=db_session)
         if not schedule:
             return None
         
         schedule.enabled = enabled
         schedule.updated_at = datetime.now()
+        
+        # 更新数据库
+        db = db_session or self._db_session
+        if db:
+            try:
+                await db.execute(
+                    update(ScheduleModel)
+                    .where(ScheduleModel.id == int(schedule_id))
+                    .values(enabled=enabled, updated_at=datetime.now())
+                )
+                await db.commit()
+            except (ValueError, TypeError):
+                pass
         
         # 暂停或恢复APScheduler中的任务
         if schedule_id in self._jobs:
@@ -335,16 +568,48 @@ class TaskScheduler:
             else:
                 self.scheduler.pause_job(schedule_id)
         
+        logger.info(f"Updated schedule {schedule_id} status to {enabled}")
         return schedule
+    
+    async def _load_schedules_from_db(self, db: AsyncSession) -> None:
+        """
+        从数据库加载所有启用的调度
+        
+        Args:
+            db: 数据库会话
+        """
+        try:
+            result = await db.execute(
+                select(ScheduleModel).where(ScheduleModel.enabled == True)
+            )
+            db_schedules = result.scalars().all()
+            
+            for db_schedule in db_schedules:
+                schedule = TaskSchedule.from_db_model(db_schedule)
+                self._schedules[schedule.id] = schedule
+                
+                # 重新添加到APScheduler（需要回调函数，这里先跳过，由外部提供）
+                # 注意：实际使用时需要在启动时提供回调函数
+                logger.info(f"Loaded schedule {schedule.id} from database")
+        except Exception as e:
+            logger.error(f"Failed to load schedules from database: {e}")
 
 
-# 全局调度器实例
+# 全局调度器实例（注意：需要在使用时传入db_session）
 _global_scheduler: Optional[TaskScheduler] = None
 
 
-def get_global_scheduler() -> TaskScheduler:
-    """获取全局调度器"""
+def get_global_scheduler(db_session: Optional[AsyncSession] = None) -> TaskScheduler:
+    """
+    获取全局调度器
+    
+    Args:
+        db_session: 数据库会话（如果提供，会创建新的调度器实例）
+        
+    Returns:
+        调度器实例
+    """
     global _global_scheduler
-    if _global_scheduler is None:
-        _global_scheduler = TaskScheduler()
+    if _global_scheduler is None or db_session is not None:
+        _global_scheduler = TaskScheduler(db_session=db_session)
     return _global_scheduler

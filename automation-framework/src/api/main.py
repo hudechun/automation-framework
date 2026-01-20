@@ -121,6 +121,14 @@ app.include_router(notifications.router, prefix="/api/notifications", tags=["not
 app.include_router(auth.router, prefix="/api/auth", tags=["auth"])
 app.include_router(files.router, prefix="/api/files", tags=["files"])
 
+# 注册Admin API路由
+try:
+    from .routers import admin_api
+    app.include_router(admin_api.router, tags=["admin"])
+    logger.info("Admin API routes registered")
+except Exception as e:
+    logger.warning(f"Admin API routes not available: {e}")
+
 
 # WebSocket端点
 @app.websocket("/ws")
