@@ -343,12 +343,21 @@ class UserService:
         """
         reset_user = page_object.model_dump(exclude_unset=True, exclude={'admin'})
         if page_object.old_password:
-            user = (await UserDao.get_user_detail_by_id(query_db, user_id=page_object.user_id)).get('user_basic_info')
+            user_detail = await UserDao.get_user_detail_by_id(query_db, user_id=page_object.user_id)
+            user = user_detail.get('user_basic_info')
+            
+            # 添加空值检查
+            if not user:
+                raise ServiceException(message='用户不存在')
+            
             if not PwdUtil.verify_password(page_object.old_password, user.password):
                 raise ServiceException(message='修改密码失败，旧密码错误')
             if PwdUtil.verify_password(page_object.password, user.password):
                 raise ServiceException(message='新密码不能与旧密码相同')
             del reset_user['old_password']
+        
+        # 注意: SMS 验证码的验证在 forget_user_services 中已经完成
+        # 这里只是清理字段，不需要重复验证
         if page_object.sms_code and page_object.session_id:
             del reset_user['sms_code']
             del reset_user['session_id']

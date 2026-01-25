@@ -106,18 +106,14 @@ class LoginService:
             logger.warning('用户不存在')
             raise LoginException(data='', message='用户不存在')
         if not PwdUtil.verify_password(login_user.password, user[0].password):
-            cache_password_error_count = await request.app.state.redis.get(
-                f'{RedisInitKeyConfig.PASSWORD_ERROR_COUNT.key}:{login_user.user_name}'
-            )
-            password_error_counted = 0
-            if cache_password_error_count:
-                password_error_counted = cache_password_error_count
-            password_error_count = int(password_error_counted) + 1
-            await request.app.state.redis.set(
-                f'{RedisInitKeyConfig.PASSWORD_ERROR_COUNT.key}:{login_user.user_name}',
-                password_error_count,
-                ex=timedelta(minutes=10),
-            )
+            # 使用 Redis INCR 命令实现原子操作，避免竞态条件
+            error_key = f'{RedisInitKeyConfig.PASSWORD_ERROR_COUNT.key}:{login_user.user_name}'
+            password_error_count = await request.app.state.redis.incr(error_key)
+            
+            # 首次错误时设置过期时间
+            if password_error_count == 1:
+                await request.app.state.redis.expire(error_key, timedelta(minutes=10))
+            
             if password_error_count > CommonConstant.PASSWORD_ERROR_COUNT:
                 await request.app.state.redis.delete(
                     f'{RedisInitKeyConfig.PASSWORD_ERROR_COUNT.key}:{login_user.user_name}'
@@ -147,10 +143,42 @@ class LoginService:
         """
         black_ip_value = await request.app.state.redis.get(f'{RedisInitKeyConfig.SYS_CONFIG.key}:sys.login.blackIPList')
         black_ip_list = black_ip_value.split(',') if black_ip_value else []
-        if request.headers.get('X-Forwarded-For') in black_ip_list:
-            logger.warning('当前IP禁止登录')
+        
+        if not black_ip_list:
+            return True
+        
+        # 获取客户端真实 IP
+        client_ip = cls.__get_client_ip(request)
+        
+        # 检查 IP 是否在黑名单中
+        if client_ip in black_ip_list:
+            logger.warning(f'当前IP禁止登录: {client_ip}')
             raise LoginException(data='', message='当前IP禁止登录')
+        
         return True
+    
+    @classmethod
+    def __get_client_ip(cls, request: Request) -> str:
+        """
+        获取客户端真实 IP 地址
+        
+        :param request: Request对象
+        :return: 客户端 IP
+        """
+        # 1. 优先从 X-Real-IP 获取（Nginx 代理）
+        real_ip = request.headers.get('X-Real-IP')
+        if real_ip:
+            return real_ip.strip()
+        
+        # 2. 从 X-Forwarded-For 获取第一个 IP（可能经过多层代理）
+        forwarded_for = request.headers.get('X-Forwarded-For')
+        if forwarded_for:
+            # X-Forwarded-For 格式: client, proxy1, proxy2
+            # 取第一个 IP（客户端 IP）
+            return forwarded_for.split(',')[0].strip()
+        
+        # 3. 直接从客户端地址获取
+        return request.client.host if request.client else 'unknown'
 
     @classmethod
     async def __check_login_captcha(cls, request: Request, login_user: UserLogin) -> bool:

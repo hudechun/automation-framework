@@ -90,19 +90,19 @@ def create_app() -> FastAPI:
 
     # 挂载子应用
     handle_sub_applications(app)
-    
-    # 挂载Automation Framework
-    try:
-        from mount_automation import mount_automation_app
-        mount_automation_app(app)
-    except Exception as e:
-        logger.warning(f'Automation Framework挂载失败: {e}')
-    
+
     # 加载中间件处理方法
     handle_middleware(app)
     # 加载全局异常处理方法
     handle_exception(app)
     # 自动注册路由
     auto_register_routers(app)
+
+    # 挂载Automation Framework
+    try:
+        from mount_automation import mount_automation_app
+        mount_automation_app(app)
+    except Exception as e:
+        logger.warning(f'Automation Framework挂载失败: {e}')
 
     return app
