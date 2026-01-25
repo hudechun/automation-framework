@@ -20,8 +20,8 @@ class RateLimitMiddleware(BaseHTTPMiddleware):
     def __init__(
         self,
         app: FastAPI,
-        requests_per_minute: int = 60,
-        requests_per_hour: int = 1000,
+        requests_per_minute: int = 300,  # 提高到300次/分钟
+        requests_per_hour: int = 5000,   # 提高到5000次/小时
     ) -> None:
         """
         初始化速率限制中间件
@@ -52,6 +52,10 @@ class RateLimitMiddleware(BaseHTTPMiddleware):
 
         # 排除验证码接口（登录时需要频繁获取）
         if request.url.path.startswith('/captchaImage') or request.url.path.startswith('/dev-api/captchaImage'):
+            return await call_next(request)
+
+        # 排除论文系统接口（开发阶段）
+        if request.url.path.startswith('/thesis'):
             return await call_next(request)
 
         # 获取客户端 IP
@@ -126,14 +130,15 @@ class RateLimitMiddleware(BaseHTTPMiddleware):
 
 def add_rate_limit_middleware(app: FastAPI) -> None:
     """
-    添加速率限制中间件
+    添加速率限制中间件（已禁用）
 
     :param app: FastAPI 对象
     :return:
     """
-    # 速率限制中间件 - 已启用，但排除了登录/登出接口
-    app.add_middleware(
-        RateLimitMiddleware,
-        requests_per_minute=60,  # 每分钟 60 次
-        requests_per_hour=1000,  # 每小时 1000 次
-    )
+    # 速率限制中间件已禁用 - 如需启用，取消下面的注释
+    # app.add_middleware(
+    #     RateLimitMiddleware,
+    #     requests_per_minute=300,  # 每分钟 300 次
+    #     requests_per_hour=5000,   # 每小时 5000 次
+    # )
+    pass
