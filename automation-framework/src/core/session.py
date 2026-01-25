@@ -114,7 +114,7 @@ class Session:
             session_id=db_session.session_id,
             driver_type=DriverType(db_session.driver_type),
             driver=driver,
-            metadata=db_session.metadata or {},
+            metadata=getattr(db_session, 'session_metadata', None) or getattr(db_session, 'metadata', None) or {},  # 兼容两种字段名
             state=SessionState(db_session.state),
             created_at=db_session.created_at,
             updated_at=db_session.updated_at,
@@ -133,7 +133,7 @@ class Session:
             "session_id": self.id,
             "driver_type": self.driver_type.value,
             "state": self.state.value,
-            "metadata": self.metadata,
+            "session_metadata": self.metadata,  # 使用 session_metadata 匹配数据库字段
             "updated_at": datetime.now(),
         }
         

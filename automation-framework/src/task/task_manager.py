@@ -35,7 +35,9 @@ class Task:
         status: TaskStatus = TaskStatus.PENDING,
         created_at: Optional[datetime] = None,
         updated_at: Optional[datetime] = None,
-        error: Optional[str] = None
+        error: Optional[str] = None,
+        user_id: Optional[int] = None,
+        user_name: Optional[str] = None
     ):
         self.id = task_id or str(uuid.uuid4())
         self.name = name
@@ -48,6 +50,8 @@ class Task:
         self.created_at = created_at or datetime.now()
         self.updated_at = updated_at or datetime.now()
         self.error = error
+        self.user_id = user_id
+        self.user_name = user_name
         
     def validate(self) -> bool:
         """
@@ -115,7 +119,9 @@ class Task:
             status=TaskStatus(db_task.status),
             created_at=db_task.created_at,
             updated_at=db_task.updated_at,
-            error=None  # 错误信息可以存储在config中
+            error=None,  # 错误信息可以存储在config中
+            user_id=getattr(db_task, 'user_id', None),
+            user_name=getattr(db_task, 'user_name', None)
         )
         return task
     
@@ -126,7 +132,7 @@ class Task:
         Returns:
             字典，包含数据库字段
         """
-        return {
+        result = {
             "name": self.name,
             "description": self.description,
             "task_type": self.driver_type.value,
@@ -135,6 +141,12 @@ class Task:
             "status": self.status.value,
             "updated_at": datetime.now(),
         }
+        # 添加用户字段（如果存在）
+        if hasattr(self, 'user_id') and self.user_id is not None:
+            result["user_id"] = self.user_id
+        if hasattr(self, 'user_name') and self.user_name is not None:
+            result["user_name"] = self.user_name
+        return result
         
     @classmethod
     def from_dict(cls, data: Dict[str, Any]) -> "Task":
@@ -181,6 +193,8 @@ class TaskManager:
         actions: Optional[List[Action]] = None,
         config: Optional[Dict[str, Any]] = None,
         metadata: Optional[Dict[str, Any]] = None,
+        user_id: Optional[int] = None,
+        user_name: Optional[str] = None,
         db_session: Optional[AsyncSession] = None
     ) -> Task:
         """
@@ -209,7 +223,9 @@ class TaskManager:
             driver_type=driver_type,
             actions=actions or [],
             config=config or {},
-            metadata=metadata or {}
+            metadata=metadata or {},
+            user_id=user_id,
+            user_name=user_name
         )
         
         # 验证任务

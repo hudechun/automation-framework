@@ -52,6 +52,12 @@ class BrowserDriver(Driver):
         
         Args:
             **kwargs: 浏览器启动参数
+                - headless: 是否无头模式
+                - viewport: 视口大小
+                - user_agent: User-Agent字符串
+                - locale: 语言环境
+                - proxy: 代理配置（dict或ProxyConfig对象）
+                - anti_detection: 反检测配置（AntiDetectionConfig对象）
         """
         if self.is_running:
             return
@@ -80,6 +86,23 @@ class BrowserDriver(Driver):
             "user_agent": kwargs.get("user_agent"),
             "locale": kwargs.get("locale"),
         }
+        
+        # 应用反检测配置
+        anti_detection = kwargs.get("anti_detection")
+        if anti_detection:
+            from ..core.anti_detection import AntiDetectionConfig
+            if isinstance(anti_detection, AntiDetectionConfig):
+                context_options.update(anti_detection.to_context_options())
+        
+        # 应用代理配置
+        proxy = kwargs.get("proxy")
+        if proxy:
+            from ..core.anti_detection import ProxyConfig
+            if isinstance(proxy, ProxyConfig):
+                context_options["proxy"] = proxy.to_playwright_proxy()
+            elif isinstance(proxy, dict):
+                context_options["proxy"] = proxy
+        
         # 移除None值
         context_options = {k: v for k, v in context_options.items() if v is not None}
         
@@ -185,6 +208,16 @@ class BrowserDriver(Driver):
         elif isinstance(action, Sleep):
             return await action.execute(self)
         else:
+            # 检查是否是智能等待操作
+            from ..core.smart_wait import SmartWait
+            if isinstance(action, SmartWait):
+                return await action.execute(self)
+            
+            # 检查是否是控制流操作
+            from ..core.control_flow import Loop, If, While
+            if isinstance(action, (Loop, If, While)):
+                return await action.execute(self)
+            
             raise NotImplementedError(f"Action {type(action).__name__} not implemented")
     
     # ==================== 导航操作处理 ====================
@@ -215,11 +248,28 @@ class BrowserDriver(Driver):
     # ==================== 交互操作处理 ====================
     
     async def _handle_click(self, action: Click) -> None:
-        """处理点击操作"""
-        await self._current_page.click(
-            action.selector,
-            button=action.button
-        )
+        """处理点击操作（支持多种定位策略）"""
+        from ..core.element_locator import ElementLocator
+        
+        # 如果selector是字符串，尝试解析为定位器
+        if isinstance(action.selector, str):
+            # 检查是否是JSON格式的定位器配置
+            if action.selector.startswith('{') and action.selector.endswith('}'):
+                import json
+                try:
+                    locator_data = json.loads(action.selector)
+                    locator = ElementLocator.from_dict(locator_data)
+                except:
+                    # 如果不是有效JSON，使用默认CSS定位
+                    locator = ElementLocator(action.selector)
+            else:
+                # 默认使用CSS选择器
+                locator = ElementLocator(action.selector)
+        else:
+            locator = action.selector
+        
+        playwright_locator = locator.to_playwright_locator(self._current_page)
+        await playwright_locator.click(button=action.button)
     
     async def _handle_double_click(self, action: DoubleClick) -> None:
         """处理双击操作"""

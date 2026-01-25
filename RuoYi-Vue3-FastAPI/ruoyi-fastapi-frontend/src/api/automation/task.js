@@ -50,3 +50,61 @@ export function executeTask(taskId) {
     method: 'post'
   })
 }
+
+// 暂停任务
+export function pauseTask(taskId) {
+  return request({
+    url: '/automation/task/' + taskId + '/pause',
+    method: 'post'
+  })
+}
+
+// 恢复任务
+export function resumeTask(taskId) {
+  return request({
+    url: '/automation/task/' + taskId + '/resume',
+    method: 'post'
+  })
+}
+
+// 停止任务
+export function stopTask(taskId) {
+  return request({
+    url: '/automation/task/' + taskId + '/stop',
+    method: 'post'
+  })
+}
+
+// 解析自然语言任务
+export function parseTask(data) {
+  return request({
+    url: '/automation/task/parse',
+    method: 'post',
+    data: data
+  })
+}
+
+// 获取执行状态
+export function getExecutionStatus(taskId) {
+  return request({
+    url: '/automation/task/' + taskId + '/execution/status',
+    method: 'get'
+  })
+}
+
+// 获取执行进度
+export function getExecutionProgress(taskId) {
+  return request({
+    url: '/automation/task/' + taskId + '/execution/progress',
+    method: 'get'
+  })
+}
+
+// 获取执行日志
+export function getExecutionLogs(taskId, params) {
+  return request({
+    url: '/automation/task/' + taskId + '/execution/logs',
+    method: 'get',
+    params: params
+  })
+}

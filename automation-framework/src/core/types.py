@@ -13,6 +13,7 @@ class ActionType(str, Enum):
     INPUT = "input"
     QUERY = "query"
     WAIT = "wait"
+    CONTROL_FLOW = "control_flow"  # 控制流（循环、条件分支）
 
 
 class DriverType(str, Enum):

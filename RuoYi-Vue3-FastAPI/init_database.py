@@ -2,13 +2,30 @@
 初始化RuoYi数据库
 """
 import asyncio
+import os
+import sys
 import aiomysql
+from dotenv import load_dotenv
 
-DB_HOST = "106.53.217.96"
-DB_PORT = 3306
-DB_USER = "root"
-DB_PASSWORD = "gyswxgyb7418!"
-DB_NAME = "ruoyi-fastapi"
+# 加载环境变量
+env_file = "ruoyi-fastapi-backend/.env.dev"
+if len(sys.argv) > 1 and sys.argv[1] == "prod":
+    env_file = "ruoyi-fastapi-backend/.env.prod"
+
+load_dotenv(env_file)
+
+# 从环境变量读取数据库配置
+DB_HOST = os.getenv("DB_HOST", "127.0.0.1")
+DB_PORT = int(os.getenv("DB_PORT", "3306"))
+DB_USER = os.getenv("DB_USERNAME", "root")
+DB_PASSWORD = os.getenv("DB_PASSWORD")
+DB_NAME = os.getenv("DB_DATABASE", "ruoyi-fastapi")
+
+# 验证必需的环境变量
+if not DB_PASSWORD:
+    print("❌ 错误: 未设置数据库密码 (DB_PASSWORD)")
+    print(f"请在 {env_file} 文件中配置 DB_PASSWORD")
+    sys.exit(1)
 
 
 async def init_database():

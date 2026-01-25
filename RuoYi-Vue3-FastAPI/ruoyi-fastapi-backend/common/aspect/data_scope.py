@@ -48,6 +48,9 @@ class GetDataScope:
         ]
         param_sql_list = []
         for role in current_user.user.role:
+            # 注意：这是设计行为 - 如果用户是管理员或拥有任何"全部数据权限"的角色，
+            # 则可以访问所有数据。这符合"最大权限"原则。
+            # 如果需要"最小权限"原则，需要修改为 AND 逻辑而不是 OR 逻辑。
             if current_user.user.admin or role.data_scope == self.DATA_SCOPE_ALL:
                 param_sql_list = [True]
                 break

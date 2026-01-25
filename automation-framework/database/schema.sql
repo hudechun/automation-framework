@@ -79,7 +79,7 @@ CREATE TABLE IF NOT EXISTS `sessions` (
     `session_id` VARCHAR(255) NOT NULL UNIQUE COMMENT '会话ID',
     `state` VARCHAR(50) NOT NULL DEFAULT 'created' COMMENT '状态: created, running, paused, stopped, failed',
     `driver_type` VARCHAR(50) NOT NULL COMMENT '驱动类型: browser, desktop',
-    `metadata` JSON COMMENT '会话元数据',
+    `session_metadata` JSON COMMENT '会话元数据（包含user_id和task_id）',
     `created_at` DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP COMMENT '创建时间',
     `updated_at` DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP COMMENT '更新时间',
     INDEX `idx_session_id` (`session_id`),

@@ -13,6 +13,8 @@ from .actions import (
     GetText, GetAttribute, Screenshot, GetUITree, IsVisible,
     WaitForElement, WaitForText, WaitForCondition, Sleep,
 )
+from .smart_wait import SmartWait, wait_for_element_visible, wait_for_text, wait_for_network_idle
+from .control_flow import Loop, If, While
 
 
 # Action类名到Action类的映射
@@ -41,10 +43,25 @@ ACTION_CLASS_MAP: Dict[str, type] = {
     "WaitForText": WaitForText,
     "WaitForCondition": WaitForCondition,
     "Sleep": Sleep,
+    # 智能等待
+    "SmartWait": SmartWait,
+    # 控制流
+    "Loop": Loop,
+    "If": If,
+    "While": While,
 }
 
 
 def serialize_action(action: Action) -> Dict[str, Any]:
+    """
+    序列化Action对象为字典
+    
+    Args:
+        action: Action对象
+        
+    Returns:
+        序列化后的字典
+    """
     """
     序列化Action对象为字典
     

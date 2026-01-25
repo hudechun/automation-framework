@@ -80,12 +80,26 @@ class WaitForLoad(Action):
 # ==================== 交互操作 ====================
 
 class Click(Action):
-    """点击元素"""
+    """点击元素（支持多种定位策略）"""
     
-    def __init__(self, selector: str, button: str = "left"):
-        super().__init__(ActionType.INTERACTION, selector=selector, button=button)
+    def __init__(
+        self,
+        selector: str,
+        button: str = "left",
+        locator_type: Optional[str] = None
+    ):
+        """
+        初始化点击操作
+        
+        Args:
+            selector: 选择器或定位值
+            button: 鼠标按钮（left, right, middle）
+            locator_type: 定位策略类型（css, xpath, text等），如果为None自动推断
+        """
+        super().__init__(ActionType.INTERACTION, selector=selector, button=button, locator_type=locator_type)
         self.selector = selector
         self.button = button
+        self.locator_type = locator_type
     
     def validate(self) -> bool:
         """验证选择器和按钮参数"""

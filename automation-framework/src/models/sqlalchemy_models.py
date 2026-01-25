@@ -8,26 +8,14 @@ from sqlalchemy import (
 )
 from sqlalchemy.orm import relationship
 
-# 导入 RuoYi 的 Base 类（统一使用）
-import sys
-import os
+# 使用 automation-framework 自己的 Base，避免与 RuoYi 的 Declarative Base 发生 MetaData 冲突
+from sqlalchemy.ext.asyncio import AsyncAttrs
+from sqlalchemy.orm import DeclarativeBase
 
-# 添加 RuoYi 后端路径
-ruoyi_backend_path = os.path.abspath(
-    os.path.join(os.path.dirname(__file__), '../../../RuoYi-Vue3-FastAPI/ruoyi-fastapi-backend')
-)
-if ruoyi_backend_path not in sys.path:
-    sys.path.insert(0, ruoyi_backend_path)
 
-try:
-    from config.database import Base
-except ImportError:
-    # 如果无法导入，创建一个临时的 Base（用于独立运行）
-    from sqlalchemy.ext.asyncio import AsyncAttrs
-    from sqlalchemy.orm import DeclarativeBase
-    
-    class Base(AsyncAttrs, DeclarativeBase):
-        pass
+class Base(AsyncAttrs, DeclarativeBase):
+    """automation-framework 独立的 Declarative Base"""
+    pass
 
 
 class Task(Base):
@@ -38,6 +26,8 @@ class Task(Base):
         Index('idx_name', 'name'),
         Index('idx_status', 'status'),
         Index('idx_created_at', 'created_at'),
+        Index('idx_user_id', 'user_id'),
+        Index('idx_user_status', 'user_id', 'status'),
         {'comment': '自动化任务表'}
     )
     
@@ -48,6 +38,8 @@ class Task(Base):
     actions = Column(JSON, nullable=False, comment='操作列表')
     config = Column(JSON, nullable=True, comment='任务配置')
     status = Column(String(50), nullable=False, server_default='pending', comment='任务状态：pending, running, completed, failed')
+    user_id = Column(Integer, nullable=True, index=True, comment='用户ID（关联sys_user.user_id）')
+    user_name = Column(String(50), nullable=True, comment='用户名（冗余字段，便于查询）')
     created_at = Column(DateTime, nullable=False, default=datetime.now, comment='创建时间')
     updated_at = Column(DateTime, nullable=False, default=datetime.now, onupdate=datetime.now, comment='更新时间')
     
@@ -122,7 +114,12 @@ class Session(Base):
     session_id = Column(String(255), nullable=False, unique=True, index=True, comment='会话标识')
     state = Column(String(50), nullable=False, server_default='created', comment='会话状态：created, running, paused, stopped, failed')
     driver_type = Column(String(50), nullable=False, comment='驱动类型：browser, desktop')
-    metadata = Column(JSON, nullable=True, comment='会话元数据')
+    # 注意：字段名使用 session_metadata 以匹配 RuoYi 的数据库表结构
+    # user_id和task_id存储在session_metadata JSON中，而不是独立字段
+    # 如果需要独立字段，可以取消下面的注释并执行迁移脚本的方案A
+    # user_id = Column(Integer, nullable=True, index=True, comment='用户ID（关联sys_user.user_id）')
+    # task_id = Column(Integer, ForeignKey('tasks.id', ondelete='SET NULL'), nullable=True, comment='关联任务ID')
+    session_metadata = Column(JSON, nullable=True, comment='会话元数据（包含user_id和task_id）')
     created_at = Column(DateTime, nullable=False, default=datetime.now, comment='创建时间')
     updated_at = Column(DateTime, nullable=False, default=datetime.now, onupdate=datetime.now, comment='更新时间')
     
@@ -248,7 +245,9 @@ class FileStorage(Base):
     mime_type = Column(String(100), nullable=True, comment='MIME类型')
     related_type = Column(String(50), nullable=True, comment='关联类型：task, execution, session')
     related_id = Column(Integer, nullable=True, comment='关联ID')
-    metadata = Column(JSON, nullable=True, comment='元数据')
+    # 注意：SQLAlchemy Declarative API 中属性名 `metadata` 是保留的，
+    # 这里使用 `extra_metadata` 作为属性名，但数据库列名仍为 `metadata`，兼容现有表结构。
+    extra_metadata = Column("metadata", JSON, nullable=True, comment='元数据')
     created_at = Column(DateTime, nullable=False, default=datetime.now, comment='创建时间')
 
 
@@ -286,5 +285,6 @@ class PerformanceMetrics(Base):
     metric_name = Column(String(100), nullable=False, comment='指标名称')
     value = Column(Float, nullable=False, comment='指标值')
     unit = Column(String(20), nullable=True, comment='单位')
-    metadata = Column(JSON, nullable=True, comment='元数据')
+    # 同样避免使用保留名 `metadata` 作为属性，保持列名兼容
+    extra_metadata = Column("metadata", JSON, nullable=True, comment='元数据')
     created_at = Column(DateTime, nullable=False, default=datetime.now, comment='创建时间')
