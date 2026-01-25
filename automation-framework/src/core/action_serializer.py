@@ -17,6 +17,10 @@ from .actions import (
     OpenFile, SaveFile, SaveAs,
     ClickCoordinate,
 )
+from .wechat_actions import (
+    OpenWeChat, FindContact, FindGroup, SendMessage,
+    WaitForMessage, SendFile, SendImage, GetChatHistory
+)
 from .smart_wait import SmartWait, wait_for_element_visible, wait_for_text, wait_for_network_idle
 from .control_flow import Loop, If, While
 
@@ -64,6 +68,15 @@ ACTION_CLASS_MAP: Dict[str, type] = {
     "Loop": Loop,
     "If": If,
     "While": While,
+    # 微信专用操作
+    "OpenWeChat": OpenWeChat,
+    "FindContact": FindContact,
+    "FindGroup": FindGroup,
+    "SendMessage": SendMessage,
+    "WaitForMessage": WaitForMessage,
+    "SendFile": SendFile,
+    "SendImage": SendImage,
+    "GetChatHistory": GetChatHistory,
 }
 
 
@@ -253,6 +266,47 @@ def deserialize_action(data: Dict[str, Any]) -> Optional[Action]:
                 x=params.get("x", 0),
                 y=params.get("y", 0),
                 button=params.get("button", "left")
+            )
+        # 微信专用操作
+        elif class_name == "OpenWeChat":
+            return OpenWeChat(wechat_path=params.get("wechat_path"))
+        elif class_name == "FindContact":
+            return FindContact(
+                contact_name=params.get("contact_name", ""),
+                search_type=params.get("search_type", "name")
+            )
+        elif class_name == "FindGroup":
+            return FindGroup(group_name=params.get("group_name", ""))
+        elif class_name == "SendMessage":
+            return SendMessage(
+                message=params.get("message", ""),
+                contact_name=params.get("contact_name"),
+                group_name=params.get("group_name")
+            )
+        elif class_name == "WaitForMessage":
+            return WaitForMessage(
+                timeout=params.get("timeout", 30000),
+                contact_name=params.get("contact_name"),
+                group_name=params.get("group_name"),
+                message_filter=params.get("message_filter")
+            )
+        elif class_name == "SendFile":
+            return SendFile(
+                file_path=params.get("file_path", ""),
+                contact_name=params.get("contact_name"),
+                group_name=params.get("group_name")
+            )
+        elif class_name == "SendImage":
+            return SendImage(
+                image_path=params.get("image_path", ""),
+                contact_name=params.get("contact_name"),
+                group_name=params.get("group_name")
+            )
+        elif class_name == "GetChatHistory":
+            return GetChatHistory(
+                contact_name=params.get("contact_name"),
+                group_name=params.get("group_name"),
+                limit=params.get("limit", 50)
             )
         elif class_name in ["GoBack", "GoForward", "Refresh"]:
             # 这些操作不需要参数

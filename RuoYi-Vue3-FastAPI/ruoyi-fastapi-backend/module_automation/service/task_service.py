@@ -414,8 +414,8 @@ class TaskService:
             raise ServiceException(message='描述不能为空')
         
         try:
-            from src.ai.agent import TaskPlanner
-            from src.ai.llm import create_llm_provider
+            from src.ai.agent import Agent
+            from src.ai.scenario_planner import ScenarioType
             from src.models.sqlalchemy_models import ModelConfig as ModelConfigModel
             from sqlalchemy import select
         except ImportError as e:
@@ -432,29 +432,30 @@ class TaskService:
         if not model_config:
             raise ServiceException(message='未配置LLM模型，请先配置模型')
         
-        # 创建LLM提供者和TaskPlanner
-        llm = create_llm_provider(model_config)
-        planner = TaskPlanner(llm)
+        # 创建Agent（启用场景化支持）
+        agent = Agent(model_config, enable_scenario=True)
         
-        # 解析任务
-        task_desc = await planner.parse_task(description)
+        # 使用场景化规划解析任务
+        result = await agent.execute_task(description)
         
-        # 生成计划
-        plan = await planner.plan(task_desc)
-        
-        # 转换为Action对象
-        actions = []
-        for step in plan:
-            actions.append(step)
+        # 提取信息
+        task_desc = result.get("task_description", {})
+        plan = result.get("plan", [])
+        scenario_type = result.get("scenario_type", "generic")
+        driver_type = result.get("driver_type", "browser")
         
         return {
             "success": True,
+            "scenario_type": scenario_type,
+            "scenario_name": result.get("scenario_name"),
+            "driver_type": driver_type,
             "task_description": {
-                "goal": task_desc.goal,
-                "constraints": task_desc.constraints,
-                "parameters": task_desc.parameters,
-                "context": task_desc.context
+                "goal": task_desc.goal if isinstance(task_desc, dict) else getattr(task_desc, "goal", ""),
+                "constraints": task_desc.constraints if isinstance(task_desc, dict) else getattr(task_desc, "constraints", []),
+                "parameters": task_desc.parameters if isinstance(task_desc, dict) else getattr(task_desc, "parameters", {}),
+                "context": task_desc.context if isinstance(task_desc, dict) else getattr(task_desc, "context", {})
             },
-            "actions": actions,
-            "total_actions": len(actions)
+            "actions": plan,
+            "total_actions": len(plan),
+            "common_actions": result.get("common_actions", [])
         }

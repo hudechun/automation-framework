@@ -16,6 +16,10 @@ from ..core.actions import (
     OpenFile, SaveFile, SaveAs,
     ClickCoordinate
 )
+from ..core.wechat_actions import (
+    OpenWeChat, FindContact, FindGroup, SendMessage,
+    WaitForMessage, SendFile, SendImage, GetChatHistory
+)
 
 logger = logging.getLogger(__name__)
 
@@ -328,6 +332,23 @@ class WindowsDriver(DesktopDriver):
             return await self._handle_save_as(action)
         elif isinstance(action, ClickCoordinate):
             return await self._handle_click_coordinate(action)
+        # 微信专用操作
+        elif isinstance(action, OpenWeChat):
+            return await self._handle_open_wechat(action)
+        elif isinstance(action, FindContact):
+            return await self._handle_find_contact(action)
+        elif isinstance(action, FindGroup):
+            return await self._handle_find_group(action)
+        elif isinstance(action, SendMessage):
+            return await self._handle_send_message(action)
+        elif isinstance(action, WaitForMessage):
+            return await self._handle_wait_for_message(action)
+        elif isinstance(action, SendFile):
+            return await self._handle_send_file(action)
+        elif isinstance(action, SendImage):
+            return await self._handle_send_image(action)
+        elif isinstance(action, GetChatHistory):
+            return await self._handle_get_chat_history(action)
         else:
             raise NotImplementedError(f"Action {type(action).__name__} not implemented")
     
@@ -651,4 +672,257 @@ class WindowsDriver(DesktopDriver):
             raise
         except Exception as e:
             logger.error(f"Failed to click at coordinate ({action.x}, {action.y}): {e}")
+            raise
+    
+    # ==================== 微信专用操作处理 ====================
+    
+    async def _handle_open_wechat(self, action: OpenWeChat) -> None:
+        """处理打开微信操作"""
+        try:
+            wechat_path = action.wechat_path
+            if not wechat_path:
+                # 自动查找微信路径
+                import winreg
+                try:
+                    key = winreg.OpenKey(
+                        winreg.HKEY_CURRENT_USER,
+                        r"Software\Tencent\WeChat"
+                    )
+                    wechat_path = winreg.QueryValueEx(key, "InstallPath")[0] + r"\WeChat.exe"
+                    winreg.CloseKey(key)
+                except:
+                    # 默认路径
+                    wechat_path = r"C:\Program Files (x86)\Tencent\WeChat\WeChat.exe"
+            
+            await self.start_app(wechat_path)
+            # 等待微信窗口出现
+            await asyncio.sleep(3)
+            await self.find_window("微信")
+            logger.info("WeChat opened successfully")
+        except Exception as e:
+            logger.error(f"Failed to open WeChat: {e}")
+            raise
+    
+    async def _handle_find_contact(self, action: FindContact) -> Any:
+        """处理查找联系人操作"""
+        try:
+            if not self.current_window:
+                await self.find_window("微信")
+            
+            # 点击搜索框
+            search_box = await self.find_element(name="搜索")
+            if search_box:
+                search_box.click()
+                await asyncio.sleep(0.5)
+                
+                # 输入联系人名称
+                search_box.type_keys(action.contact_name)
+                await asyncio.sleep(1)
+                
+                # 点击第一个搜索结果
+                # 注意：这里需要根据实际微信界面调整
+                # 微信的UI结构可能因版本而异
+                contact_item = await self.find_element(name=action.contact_name)
+                if contact_item:
+                    contact_item.click()
+                    await asyncio.sleep(0.5)
+                    return contact_item
+                else:
+                    raise RuntimeError(f"Contact '{action.contact_name}' not found")
+            else:
+                raise RuntimeError("Search box not found")
+        except Exception as e:
+            logger.error(f"Failed to find contact: {e}")
+            raise
+    
+    async def _handle_find_group(self, action: FindGroup) -> Any:
+        """处理查找群聊操作"""
+        try:
+            if not self.current_window:
+                await self.find_window("微信")
+            
+            # 点击搜索框
+            search_box = await self.find_element(name="搜索")
+            if search_box:
+                search_box.click()
+                await asyncio.sleep(0.5)
+                
+                # 输入群聊名称
+                search_box.type_keys(action.group_name)
+                await asyncio.sleep(1)
+                
+                # 点击第一个搜索结果
+                group_item = await self.find_element(name=action.group_name)
+                if group_item:
+                    group_item.click()
+                    await asyncio.sleep(0.5)
+                    return group_item
+                else:
+                    raise RuntimeError(f"Group '{action.group_name}' not found")
+            else:
+                raise RuntimeError("Search box not found")
+        except Exception as e:
+            logger.error(f"Failed to find group: {e}")
+            raise
+    
+    async def _handle_send_message(self, action: SendMessage) -> None:
+        """处理发送消息操作"""
+        try:
+            if not self.current_window:
+                await self.find_window("微信")
+            
+            # 如果指定了联系人，先查找联系人
+            if action.contact_name:
+                await self._handle_find_contact(FindContact(action.contact_name))
+            elif action.group_name:
+                await self._handle_find_group(FindGroup(action.group_name))
+            
+            # 查找输入框（微信消息输入框）
+            # 注意：这里需要根据实际微信界面调整
+            input_box = await self.find_element(name="输入")
+            if not input_box:
+                # 尝试其他可能的名称
+                input_box = await self.find_element(element_type="Edit")
+            
+            if input_box:
+                input_box.click()
+                await asyncio.sleep(0.3)
+                input_box.type_keys(action.message)
+                await asyncio.sleep(0.5)
+                
+                # 按Enter发送
+                input_box.type_keys("{ENTER}")
+                await asyncio.sleep(0.5)
+                logger.info(f"Message sent: {action.message}")
+            else:
+                raise RuntimeError("Message input box not found")
+        except Exception as e:
+            logger.error(f"Failed to send message: {e}")
+            raise
+    
+    async def _handle_wait_for_message(self, action: WaitForMessage) -> Any:
+        """处理等待消息操作"""
+        try:
+            if not self.current_window:
+                await self.find_window("微信")
+            
+            # 如果指定了联系人，先查找联系人
+            if action.contact_name:
+                await self._handle_find_contact(FindContact(action.contact_name))
+            elif action.group_name:
+                await self._handle_find_group(FindGroup(action.group_name))
+            
+            # 等待消息（轮询检查）
+            import time
+            start_time = time.time()
+            timeout_seconds = action.timeout / 1000
+            
+            while time.time() - start_time < timeout_seconds:
+                # 获取最新的消息（这里需要根据实际微信界面实现）
+                # 简化实现：检查是否有新消息
+                await asyncio.sleep(1)
+                
+                # TODO: 实现实际的消息检查逻辑
+                # 这里需要根据微信的实际UI结构来实现
+                
+            raise TimeoutError(f"Timeout waiting for message after {timeout_seconds} seconds")
+        except Exception as e:
+            logger.error(f"Failed to wait for message: {e}")
+            raise
+    
+    async def _handle_send_file(self, action: SendFile) -> None:
+        """处理发送文件操作"""
+        try:
+            if not self.current_window:
+                await self.find_window("微信")
+            
+            # 如果指定了联系人，先查找联系人
+            if action.contact_name:
+                await self._handle_find_contact(FindContact(action.contact_name))
+            elif action.group_name:
+                await self._handle_find_group(FindGroup(action.group_name))
+            
+            # 点击文件按钮（微信界面中的文件发送按钮）
+            # 注意：这里需要根据实际微信界面调整
+            file_button = await self.find_element(name="文件")
+            if file_button:
+                file_button.click()
+                await asyncio.sleep(0.5)
+                
+                # 选择文件（使用Windows文件对话框）
+                # 这里可以使用pywinauto操作文件对话框
+                import pywinauto
+                file_dialog = pywinauto.Desktop(backend="uia").window(title="打开")
+                if file_dialog.exists():
+                    file_dialog.Edit.set_text(action.file_path)
+                    file_dialog.Button(name="打开").click()
+                    await asyncio.sleep(1)
+                    logger.info(f"File sent: {action.file_path}")
+                else:
+                    raise RuntimeError("File dialog not found")
+            else:
+                raise RuntimeError("File button not found")
+        except Exception as e:
+            logger.error(f"Failed to send file: {e}")
+            raise
+    
+    async def _handle_send_image(self, action: SendImage) -> None:
+        """处理发送图片操作"""
+        try:
+            if not self.current_window:
+                await self.find_window("微信")
+            
+            # 如果指定了联系人，先查找联系人
+            if action.contact_name:
+                await self._handle_find_contact(FindContact(action.contact_name))
+            elif action.group_name:
+                await self._handle_find_group(FindGroup(action.group_name))
+            
+            # 点击图片按钮（微信界面中的图片发送按钮）
+            image_button = await self.find_element(name="图片")
+            if image_button:
+                image_button.click()
+                await asyncio.sleep(0.5)
+                
+                # 选择图片（使用Windows文件对话框）
+                import pywinauto
+                file_dialog = pywinauto.Desktop(backend="uia").window(title="打开")
+                if file_dialog.exists():
+                    file_dialog.Edit.set_text(action.image_path)
+                    file_dialog.Button(name="打开").click()
+                    await asyncio.sleep(1)
+                    logger.info(f"Image sent: {action.image_path}")
+                else:
+                    raise RuntimeError("File dialog not found")
+            else:
+                raise RuntimeError("Image button not found")
+        except Exception as e:
+            logger.error(f"Failed to send image: {e}")
+            raise
+    
+    async def _handle_get_chat_history(self, action: GetChatHistory) -> List[Dict[str, Any]]:
+        """处理获取聊天记录操作"""
+        try:
+            if not self.current_window:
+                await self.find_window("微信")
+            
+            # 如果指定了联系人，先查找联系人
+            if action.contact_name:
+                await self._handle_find_contact(FindContact(action.contact_name))
+            elif action.group_name:
+                await self._handle_find_group(FindGroup(action.group_name))
+            
+            # 获取聊天记录
+            # 注意：这里需要根据实际微信界面实现
+            # 微信的聊天记录可能在不同的UI元素中
+            messages = []
+            
+            # TODO: 实现实际的消息提取逻辑
+            # 这里需要根据微信的实际UI结构来实现
+            # 可能需要滚动、提取文本等操作
+            
+            logger.info(f"Retrieved {len(messages)} messages from chat history")
+            return messages
+        except Exception as e:
+            logger.error(f"Failed to get chat history: {e}")
             raise

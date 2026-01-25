@@ -7,6 +7,7 @@ from dataclasses import dataclass
 from .llm import LLMProvider, create_llm_provider
 from .vision import VisionModel, create_vision_model
 from .config import ModelConfig
+from .scenario_planner import ScenarioPlanner, ScenarioType
 from ..core.interfaces import Action
 
 
@@ -182,46 +183,67 @@ class Agent:
     def __init__(
         self,
         llm_config: ModelConfig,
-        vision_config: Optional[ModelConfig] = None
+        vision_config: Optional[ModelConfig] = None,
+        enable_scenario: bool = True
     ):
         self.llm = create_llm_provider(llm_config)
         self.vision = create_vision_model(vision_config) if vision_config else None
         self.planner = TaskPlanner(self.llm)
+        self.scenario_planner = ScenarioPlanner(self.llm, self.planner) if enable_scenario else None
         self.memory: List[Dict[str, Any]] = []
         
     async def execute_task(
         self,
         task: str,
-        context: Optional[Dict[str, Any]] = None
+        context: Optional[Dict[str, Any]] = None,
+        scenario_type: Optional[ScenarioType] = None
     ) -> Dict[str, Any]:
         """
-        执行任务
+        执行任务（支持场景化指令）
         
         Args:
-            task: 任务描述
+            task: 任务描述（自然语言）
             context: 上下文信息
+            scenario_type: 场景类型（可选，如果不提供则自动检测）
             
         Returns:
-            执行结果
+            执行结果，包含场景信息和操作计划
         """
-        # 解析任务
-        task_desc = await self.planner.parse_task(task)
-        
-        # 生成计划
-        plan = await self.planner.plan(task_desc)
-        
-        # 记录到记忆
-        self.memory.append({
-            "task": task,
-            "plan": plan,
-            "context": context or {}
-        })
-        
-        return {
-            "task_description": task_desc,
-            "plan": plan,
-            "status": "planned"
-        }
+        # 如果启用了场景规划器，使用场景化规划
+        if self.scenario_planner:
+            result = await self.scenario_planner.plan_with_scenario(task, scenario_type)
+            
+            # 记录到记忆
+            self.memory.append({
+                "task": task,
+                "scenario": result.get("scenario_type"),
+                "plan": result.get("plan", []),
+                "context": context or {}
+            })
+            
+            return {
+                **result,
+                "status": "planned"
+            }
+        else:
+            # 使用基础规划器
+            task_desc = await self.planner.parse_task(task)
+            plan = await self.planner.plan(task_desc)
+            
+            # 记录到记忆
+            self.memory.append({
+                "task": task,
+                "plan": plan,
+                "context": context or {}
+            })
+            
+            return {
+                "scenario_type": "generic",
+                "driver_type": "browser",
+                "task_description": task_desc,
+                "plan": plan,
+                "status": "planned"
+            }
     
     async def think(
         self,
