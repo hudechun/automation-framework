@@ -416,6 +416,7 @@ class TaskService:
         try:
             from src.ai.agent import Agent
             from src.ai.scenario_planner import ScenarioType
+            from src.ai.config import model_config_from_db_model
             from src.models.sqlalchemy_models import ModelConfig as ModelConfigModel
             from sqlalchemy import select
         except ImportError as e:
@@ -427,10 +428,13 @@ class TaskService:
             .where(ModelConfigModel.enabled == True)
             .limit(1)
         )
-        model_config = result.scalar_one_or_none()
+        db_model_config = result.scalar_one_or_none()
         
-        if not model_config:
+        if not db_model_config:
             raise ServiceException(message='未配置LLM模型，请先配置模型')
+        
+        # 将数据库模型转换为ModelConfig对象
+        model_config = model_config_from_db_model(db_model_config)
         
         # 创建Agent（启用场景化支持）
         agent = Agent(model_config, enable_scenario=True)

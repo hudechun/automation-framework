@@ -1,47 +1,24 @@
 """
-AI智能层模块
+AI模块 - 提供LLM、Agent和场景规划功能
 """
-from .config import (
-    ModelConfig,
-    ModelProfile,
-    ModelConfigManager,
-    get_global_config_manager,
-)
-
-from .llm import (
-    LLMProvider,
-    OpenAIProvider,
-    AnthropicProvider,
-    OllamaProvider,
-)
-
-from .vision import (
-    VisionModel,
-    GPT4VisionProvider,
-    Claude3VisionProvider,
-)
-
-from .agent import (
-    Agent,
-    TaskPlanner,
-)
+from .agent import Agent, TaskPlanner, TaskDescription
+from .llm import LLMProvider, create_llm_provider
+from .config import ModelConfig, ModelProvider, model_config_from_db_model
+from .scenario_planner import ScenarioPlanner, ScenarioType
+from .rate_limiter import RateLimiter, RateLimitConfig, get_rate_limiter
 
 __all__ = [
-    # 配置
-    "ModelConfig",
-    "ModelProfile",
-    "ModelConfigManager",
-    "get_global_config_manager",
-    # LLM
-    "LLMProvider",
-    "OpenAIProvider",
-    "AnthropicProvider",
-    "OllamaProvider",
-    # 视觉
-    "VisionModel",
-    "GPT4VisionProvider",
-    "Claude3VisionProvider",
-    # Agent
     "Agent",
     "TaskPlanner",
+    "TaskDescription",
+    "LLMProvider",
+    "create_llm_provider",
+    "ModelConfig",
+    "ModelProvider",
+    "model_config_from_db_model",
+    "ScenarioPlanner",
+    "ScenarioType",
+    "RateLimiter",
+    "RateLimitConfig",
+    "get_rate_limiter",
 ]

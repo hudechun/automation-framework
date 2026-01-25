@@ -147,13 +147,26 @@ class AnthropicProvider(LLMProvider):
             )
         except ImportError:
             raise ImportError("anthropic package is not installed. Install it with: pip install anthropic")
+        
+        # 获取限流器（默认50次/分钟，Anthropic通常限制更严格）
+        self.rate_limiter = get_rate_limiter(
+            RateLimitConfig(max_requests=50, window_seconds=60)
+        )
+        self.api_key = config.api_key or "default"
     
     async def chat(
         self,
         messages: List[Dict[str, str]],
         **kwargs
     ) -> str:
-        """Anthropic聊天接口"""
+        """Anthropic聊天接口（带限流和重试）"""
+        max_retries = 3
+        base_delay = 1.0
+        
+        for attempt in range(max_retries):
+            try:
+                # 限流控制
+                await self.rate_limiter.acquire(self.api_key)
         # 转换消息格式
         system_message = None
         converted_messages = []
@@ -177,8 +190,25 @@ class AnthropicProvider(LLMProvider):
         if system_message:
             params["system"] = system_message
         
-        response = await self.client.messages.create(**params)
-        return response.content[0].text
+                response = await self.client.messages.create(**params)
+                return response.content[0].text
+                
+            except Exception as e:
+                error_str = str(e).lower()
+                
+                # 处理限流错误（429 Too Many Requests）
+                if "429" in error_str or "rate limit" in error_str or "too many requests" in error_str:
+                    if attempt < max_retries - 1:
+                        # 指数退避：1s, 2s, 4s
+                        delay = base_delay * (2 ** attempt)
+                        print(f"Rate limit exceeded. Retrying after {delay:.1f} seconds... (attempt {attempt + 1}/{max_retries})")
+                        await asyncio.sleep(delay)
+                        continue
+                    else:
+                        raise Exception(f"Rate limit exceeded after {max_retries} attempts. Please try again later.")
+                
+                # 其他错误直接抛出
+                raise
     
     async def stream(
         self,

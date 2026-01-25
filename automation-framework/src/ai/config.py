@@ -265,3 +265,39 @@ def get_global_config_manager() -> ModelConfigManager:
     if _global_config_manager is None:
         _global_config_manager = ModelConfigManager()
     return _global_config_manager
+
+
+def model_config_from_db_model(db_model: Any) -> ModelConfig:
+    """
+    从数据库模型对象创建ModelConfig
+    
+    Args:
+        db_model: 数据库模型对象（SQLAlchemy或Tortoise ORM）
+        
+    Returns:
+        ModelConfig对象
+    """
+    # 处理SQLAlchemy模型
+    if hasattr(db_model, 'provider') and hasattr(db_model, 'model'):
+        params = db_model.params if hasattr(db_model, 'params') and db_model.params else {}
+        if isinstance(params, str):
+            import json
+            try:
+                params = json.loads(params)
+            except:
+                params = {}
+        
+        return ModelConfig(
+            provider=ModelProvider(db_model.provider),
+            model=db_model.model,
+            api_key=getattr(db_model, 'api_key', None),
+            api_base=getattr(db_model, 'api_base', None),
+            params=params
+        )
+    
+    # 处理字典格式
+    elif isinstance(db_model, dict):
+        return ModelConfig.from_dict(db_model)
+    
+    else:
+        raise ValueError(f"Unsupported model type: {type(db_model)}")
