@@ -46,6 +46,14 @@ class RateLimitMiddleware(BaseHTTPMiddleware):
         if request.url.path.startswith(('/static', '/docs', '/redoc', '/openapi.json')):
             return await call_next(request)
 
+        # 排除登录和登出接口（这些接口需要允许重试，且有其他安全机制）
+        if request.url.path in ('/login', '/logout'):
+            return await call_next(request)
+
+        # 排除验证码接口（登录时需要频繁获取）
+        if request.url.path.startswith('/captchaImage'):
+            return await call_next(request)
+
         # 获取客户端 IP
         client_ip = self._get_client_ip(request)
 
@@ -54,7 +62,7 @@ class RateLimitMiddleware(BaseHTTPMiddleware):
 
         if not is_allowed:
             logger.warning(f'速率限制: {client_ip} - {message}')
-            return ResponseUtil.failure(msg=message, code=429)
+            return ResponseUtil.failure(msg=message, dict_content={'code': 429})
 
         return await call_next(request)
 
