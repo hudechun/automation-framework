@@ -47,11 +47,11 @@ class RateLimitMiddleware(BaseHTTPMiddleware):
             return await call_next(request)
 
         # 排除登录和登出接口（这些接口需要允许重试，且有其他安全机制）
-        if request.url.path in ('/login', '/logout'):
+        if request.url.path in ('/login', '/logout', '/dev-api/login', '/dev-api/logout'):
             return await call_next(request)
 
         # 排除验证码接口（登录时需要频繁获取）
-        if request.url.path.startswith('/captchaImage'):
+        if request.url.path.startswith('/captchaImage') or request.url.path.startswith('/dev-api/captchaImage'):
             return await call_next(request)
 
         # 获取客户端 IP
@@ -131,8 +131,7 @@ def add_rate_limit_middleware(app: FastAPI) -> None:
     :param app: FastAPI 对象
     :return:
     """
-    # 登录接口更严格的限制
-    # 其他接口的通用限制
+    # 速率限制中间件 - 已启用，但排除了登录/登出接口
     app.add_middleware(
         RateLimitMiddleware,
         requests_per_minute=60,  # 每分钟 60 次
