@@ -3,8 +3,11 @@ LLM集成 - 统一的LLM接口
 """
 from typing import Dict, Any, List, Optional, AsyncIterator
 from abc import ABC, abstractmethod
+import asyncio
+import time
 
 from .config import ModelConfig
+from .rate_limiter import get_rate_limiter, RateLimitConfig
 
 
 class LLMProvider(ABC):
@@ -63,22 +66,53 @@ class OpenAIProvider(LLMProvider):
             )
         except ImportError:
             raise ImportError("openai package is not installed. Install it with: pip install openai")
+        
+        # 获取限流器（默认60次/分钟）
+        self.rate_limiter = get_rate_limiter(
+            RateLimitConfig(max_requests=60, window_seconds=60)
+        )
+        self.api_key = config.api_key or "default"
     
     async def chat(
         self,
         messages: List[Dict[str, str]],
         **kwargs
     ) -> str:
-        """OpenAI聊天接口"""
-        params = {
-            "model": self.config.model,
-            "messages": messages,
-            **self.config.params,
-            **kwargs
-        }
+        """OpenAI聊天接口（带限流和重试）"""
+        max_retries = 3
+        base_delay = 1.0
         
-        response = await self.client.chat.completions.create(**params)
-        return response.choices[0].message.content
+        for attempt in range(max_retries):
+            try:
+                # 限流控制
+                await self.rate_limiter.acquire(self.api_key)
+                
+                params = {
+                    "model": self.config.model,
+                    "messages": messages,
+                    **self.config.params,
+                    **kwargs
+                }
+                
+                response = await self.client.chat.completions.create(**params)
+                return response.choices[0].message.content
+                
+            except Exception as e:
+                error_str = str(e).lower()
+                
+                # 处理限流错误（429 Too Many Requests）
+                if "429" in error_str or "rate limit" in error_str or "too many requests" in error_str:
+                    if attempt < max_retries - 1:
+                        # 指数退避：1s, 2s, 4s
+                        delay = base_delay * (2 ** attempt)
+                        print(f"Rate limit exceeded. Retrying after {delay:.1f} seconds... (attempt {attempt + 1}/{max_retries})")
+                        await asyncio.sleep(delay)
+                        continue
+                    else:
+                        raise Exception(f"Rate limit exceeded after {max_retries} attempts. Please try again later.")
+                
+                # 其他错误直接抛出
+                raise
     
     async def stream(
         self,
@@ -251,22 +285,53 @@ class QwenProvider(LLMProvider):
             )
         except ImportError:
             raise ImportError("openai package is not installed. Install it with: pip install openai")
+        
+        # 获取限流器（默认60次/分钟）
+        self.rate_limiter = get_rate_limiter(
+            RateLimitConfig(max_requests=60, window_seconds=60)
+        )
+        self.api_key = config.api_key or "default"
     
     async def chat(
         self,
         messages: List[Dict[str, str]],
         **kwargs
     ) -> str:
-        """Qwen聊天接口"""
-        params = {
-            "model": self.config.model,
-            "messages": messages,
-            **self.config.params,
-            **kwargs
-        }
+        """Qwen聊天接口（带限流和重试）"""
+        max_retries = 3
+        base_delay = 1.0
         
-        response = await self.client.chat.completions.create(**params)
-        return response.choices[0].message.content
+        for attempt in range(max_retries):
+            try:
+                # 限流控制
+                await self.rate_limiter.acquire(self.api_key)
+                
+                params = {
+                    "model": self.config.model,
+                    "messages": messages,
+                    **self.config.params,
+                    **kwargs
+                }
+                
+                response = await self.client.chat.completions.create(**params)
+                return response.choices[0].message.content
+                
+            except Exception as e:
+                error_str = str(e).lower()
+                
+                # 处理限流错误（429 Too Many Requests）
+                if "429" in error_str or "rate limit" in error_str or "too many requests" in error_str or "请求过于频繁" in error_str:
+                    if attempt < max_retries - 1:
+                        # 指数退避：1s, 2s, 4s
+                        delay = base_delay * (2 ** attempt)
+                        print(f"Rate limit exceeded. Retrying after {delay:.1f} seconds... (attempt {attempt + 1}/{max_retries})")
+                        await asyncio.sleep(delay)
+                        continue
+                    else:
+                        raise Exception(f"Rate limit exceeded after {max_retries} attempts. Please try again later.")
+                
+                # 其他错误直接抛出
+                raise
     
     async def stream(
         self,

@@ -258,8 +258,38 @@ class ScenarioPlanner:
                 "task_description": task_desc
             }
         
-        # 使用场景模板生成计划
-        prompt = template.prompt_template.format(task_description=natural_language)
+        # 使用场景模板生成计划（合并任务解析和计划生成，减少LLM调用）
+        # 优化：在一个LLM调用中同时完成任务解析和计划生成
+        prompt = f"""你是一个{template.name}自动化专家。根据用户需求生成自动化指令。
+
+用户需求：{natural_language}
+
+请完成以下任务：
+1. 解析任务目标、约束、参数和上下文
+2. 生成操作序列
+
+返回JSON格式：
+{{
+    "task_description": {{
+        "goal": "<main goal>",
+        "constraints": ["<constraint1>", "<constraint2>"],
+        "parameters": {{"<key>": "<value>"}},
+        "context": {{"<key>": "<value>"}}
+    }},
+    "plan": [
+        {{
+            "action": "<action_type>",
+            "params": {{"<key>": "<value>"}},
+            "description": "<what this step does>"
+        }}
+    ]
+}}
+
+可用操作类型：
+{', '.join(template.common_actions)}
+
+请直接返回JSON，不要包含其他文本。"""
+        
         messages = [{"role": "user", "content": prompt}]
         response = await self.llm.chat(messages)
         
@@ -273,10 +303,18 @@ class ScenarioPlanner:
             else:
                 json_str = response
             
-            plan = json.loads(json_str)
+            data = json.loads(json_str)
+            plan = data.get("plan", [])
+            task_desc_data = data.get("task_description", {})
             
-            # 解析任务描述
-            task_desc = await self.base_planner.parse_task(natural_language)
+            # 转换为TaskDescription对象
+            from .agent import TaskDescription
+            task_desc = TaskDescription(
+                goal=task_desc_data.get("goal", natural_language),
+                constraints=task_desc_data.get("constraints", []),
+                parameters=task_desc_data.get("parameters", {}),
+                context=task_desc_data.get("context", {})
+            )
             
             return {
                 "scenario_type": scenario_type.value,
@@ -288,7 +326,7 @@ class ScenarioPlanner:
             }
         except Exception as e:
             print(f"Failed to parse scenario plan: {e}")
-            # 回退到基础规划器
+            # 回退到基础规划器（但只调用一次）
             task_desc = await self.base_planner.parse_task(natural_language)
             plan = await self.base_planner.plan(task_desc)
             return {
