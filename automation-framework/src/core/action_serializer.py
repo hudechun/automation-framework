@@ -12,6 +12,10 @@ from .actions import (
     Type, Press, PressCombo, Upload, Clear,
     GetText, GetAttribute, Screenshot, GetUITree, IsVisible,
     WaitForElement, WaitForText, WaitForCondition, Sleep,
+    StartApp, SwitchWindow, CloseWindow,
+    Copy, Paste, Cut,
+    OpenFile, SaveFile, SaveAs,
+    ClickCoordinate,
 )
 from .smart_wait import SmartWait, wait_for_element_visible, wait_for_text, wait_for_network_idle
 from .control_flow import Loop, If, While
@@ -43,6 +47,17 @@ ACTION_CLASS_MAP: Dict[str, type] = {
     "WaitForText": WaitForText,
     "WaitForCondition": WaitForCondition,
     "Sleep": Sleep,
+    # 桌面专用操作
+    "StartApp": StartApp,
+    "SwitchWindow": SwitchWindow,
+    "CloseWindow": CloseWindow,
+    "Copy": Copy,
+    "Paste": Paste,
+    "Cut": Cut,
+    "OpenFile": OpenFile,
+    "SaveFile": SaveFile,
+    "SaveAs": SaveAs,
+    "ClickCoordinate": ClickCoordinate,
     # 智能等待
     "SmartWait": SmartWait,
     # 控制流
@@ -208,6 +223,37 @@ def deserialize_action(data: Dict[str, Any]) -> Optional[Action]:
             )
         elif class_name == "Sleep":
             return Sleep(duration=params.get("duration", 1000))
+        elif class_name == "StartApp":
+            return StartApp(
+                app_path=params.get("app_path", ""),
+                window_title=params.get("window_title"),
+                **params.get("kwargs", {})
+            )
+        elif class_name == "SwitchWindow":
+            return SwitchWindow(window_title=params.get("window_title", ""))
+        elif class_name == "CloseWindow":
+            return CloseWindow(window_title=params.get("window_title"))
+        elif class_name == "Copy":
+            return Copy(selector=params.get("selector"))
+        elif class_name == "Paste":
+            return Paste(selector=params.get("selector"))
+        elif class_name == "Cut":
+            return Cut(selector=params.get("selector"))
+        elif class_name == "OpenFile":
+            return OpenFile(
+                file_path=params.get("file_path", ""),
+                app_path=params.get("app_path")
+            )
+        elif class_name == "SaveFile":
+            return SaveFile(file_path=params.get("file_path"))
+        elif class_name == "SaveAs":
+            return SaveAs(file_path=params.get("file_path", ""))
+        elif class_name == "ClickCoordinate":
+            return ClickCoordinate(
+                x=params.get("x", 0),
+                y=params.get("y", 0),
+                button=params.get("button", "left")
+            )
         elif class_name in ["GoBack", "GoForward", "Refresh"]:
             # 这些操作不需要参数
             return action_class()

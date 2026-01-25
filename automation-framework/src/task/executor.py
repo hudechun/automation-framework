@@ -133,23 +133,55 @@ class TaskExecutor:
             status="running",
             start_time=datetime.now()
         )
-        db.add(execution_record)
-        await db.commit()
-        await db.refresh(execution_record)
+        try:
+            db.add(execution_record)
+            await db.commit()
+            await db.refresh(execution_record)
+        except Exception as e:
+            await db.rollback()
+            logger.error(f"Failed to create execution record: {e}")
+            # 回滚任务状态
+            await task_manager.update_task_status(task_id, TaskStatus.PENDING, db_session=db)
+            return {
+                "success": False,
+                "message": f"Failed to create execution record: {str(e)}",
+                "task_id": task_id
+            }
         
         # 创建会话（将user_id和task_id存储在metadata中）
-        session_manager = get_global_session_manager(db_session=db)
-        session_metadata = {
-            "task_id": task_id,
-        }
-        if user_id is not None:
-            session_metadata["user_id"] = user_id
-        
-        session = await session_manager.create_session(
-            driver_type=task.driver_type,
-            metadata=session_metadata,
-            db_session=db
-        )
+        session = None
+        try:
+            session_manager = get_global_session_manager(db_session=db)
+            session_metadata = {
+                "task_id": task_id,
+            }
+            if user_id is not None:
+                session_metadata["user_id"] = user_id
+            
+            session = await session_manager.create_session(
+                driver_type=task.driver_type,
+                metadata=session_metadata,
+                db_session=db
+            )
+        except Exception as e:
+            logger.error(f"Failed to create session: {e}")
+            # 清理执行记录
+            try:
+                await db.execute(
+                    update(ExecutionRecordModel)
+                    .where(ExecutionRecordModel.id == execution_record.id)
+                    .values(status="failed", error_message=f"Session creation failed: {str(e)}")
+                )
+                await db.commit()
+            except:
+                pass
+            # 回滚任务状态
+            await task_manager.update_task_status(task_id, TaskStatus.PENDING, db_session=db)
+            return {
+                "success": False,
+                "message": f"Failed to create session: {str(e)}",
+                "task_id": task_id
+            }
         
         # 记录执行状态
         self._execution_states[task_id] = ExecutionState.RUNNING
@@ -222,28 +254,108 @@ class TaskExecutor:
             execution_id: 执行记录ID
             db: 数据库会话
         """
+        driver = None
         try:
-            # 启动会话
-            session.start()
+            # 启动会话（如果状态是CREATED，才调用start；如果是PAUSED，说明是从检查点恢复）
             session_manager = get_global_session_manager(db_session=db)
-            await session_manager.update_session_state(
-                session.id,
-                SessionState.RUNNING,
-                db_session=db
-            )
+            if session.state == SessionState.CREATED:
+                session.start()
+                await session_manager.update_session_state(
+                    session.id,
+                    SessionState.RUNNING,
+                    db_session=db
+                )
+            elif session.state == SessionState.PAUSED:
+                # 从暂停状态恢复，直接设置为RUNNING（resume_task已经处理了）
+                # 这里只需要确保状态同步（虽然resume_task已经处理，但为了保险再次确认）
+                session.resume()
+                await session_manager.update_session_state(
+                    session.id,
+                    SessionState.RUNNING,
+                    db_session=db
+                )
+            # 如果已经是RUNNING状态，说明是恢复任务，不需要再次启动
             
             # 创建驱动
-            driver = await self._create_driver(task.driver_type, task.config or {})
+            try:
+                driver = await self._create_driver(task.driver_type, task.config or {})
+            except Exception as e:
+                # 如果创建驱动失败，需要关闭会话
+                logger.error(f"Failed to create driver: {e}")
+                try:
+                    # 检查session状态，只有RUNNING状态才能stop
+                    if session.state == SessionState.RUNNING:
+                        session.stop()
+                    else:
+                        session.terminate(str(e))
+                    await session_manager.update_session_state(
+                        session.id,
+                        SessionState.FAILED,
+                        error=str(e),
+                        db_session=db
+                    )
+                except Exception as session_error:
+                    logger.warning(f"Failed to update session state: {session_error}")
+                raise
+            
+            # 桌面任务：如果配置中有app_path，自动启动应用
+            if task.driver_type == DriverType.DESKTOP:
+                app_path = task.config.get("app_path")
+                if app_path:
+                    try:
+                        from ..drivers.desktop_driver import DesktopDriver
+                        if isinstance(driver, DesktopDriver):
+                            await driver.start_app(app_path, **task.config.get("app_start_args", {}))
+                            logger.info(f"Started application: {app_path}")
+                            
+                            # 等待应用启动
+                            await asyncio.sleep(task.config.get("app_start_delay", 1.0))
+                            
+                            # 查找并激活窗口
+                            window_title = task.config.get("window_title")
+                            if window_title:
+                                window = await driver.find_window(window_title)
+                                if window:
+                                    await driver.activate_window(window)
+                                    logger.info(f"Activated window: {window_title}")
+                                else:
+                                    logger.warning(f"Window not found: {window_title}, trying to use default window")
+                                    # 尝试使用默认窗口
+                                    if hasattr(driver, '_app') and driver._app:
+                                        try:
+                                            driver.current_window = driver._app.top_window()
+                                            logger.info("Using default top window")
+                                        except Exception as win_error:
+                                            logger.warning(f"Failed to get default window: {win_error}")
+                            else:
+                                # 如果没有指定窗口标题，尝试使用默认窗口
+                                if hasattr(driver, '_app') and driver._app:
+                                    try:
+                                        driver.current_window = driver._app.top_window()
+                                        logger.info("Using default top window")
+                                    except Exception as win_error:
+                                        logger.warning(f"Failed to get default window: {win_error}")
+                    except Exception as app_error:
+                        logger.error(f"Failed to start application: {app_error}")
+                        # 应用启动失败不应该阻止任务执行，但记录错误
+                        # 如果第一个action需要窗口，会在执行时失败
             
             # 初始化执行上下文（尝试从检查点恢复）
             context = await self._load_or_create_context(task_id, session.id, db)
             self._execution_contexts[task_id] = context
             
-            # 如果从检查点恢复，记录日志
+            # 如果从检查点恢复，验证索引有效性
             if context.current_action_index > 0:
-                logger.info(
-                    f"Task {task_id} resuming from checkpoint at action {context.current_action_index}"
-                )
+                if context.current_action_index >= len(task.actions):
+                    logger.warning(
+                        f"Checkpoint action index {context.current_action_index} >= total actions {len(task.actions)}, "
+                        f"resetting to 0"
+                    )
+                    context.current_action_index = 0
+                else:
+                    logger.info(
+                        f"Task {task_id} resuming from checkpoint at action {context.current_action_index}"
+                    )
             
             # 初始化执行进度（如果从检查点恢复，需要设置已完成的操作数）
             progress = ExecutionProgress(total_actions=len(task.actions))
@@ -264,17 +376,20 @@ class TaskExecutor:
             results = []
             start_index = context.current_action_index
             
+            # 验证start_index是否有效
+            if start_index < 0 or start_index >= len(task.actions):
+                logger.warning(f"Invalid start_index {start_index}, resetting to 0")
+                start_index = 0
+                context.current_action_index = 0
+            
             for i in range(start_index, len(task.actions)):
                 action = task.actions[i]
                 
-                # 更新当前操作索引
+                # 更新当前操作索引（不在这里递增，让循环自然控制）
                 context.current_action_index = i
                 progress.next_action(i)
                 
-                # 保存检查点（用于恢复）
-                await self._save_checkpoint(task_id, session.id, context, db)
-                
-                # 检查是否被暂停
+                # 检查是否被暂停（在保存检查点之前检查，避免保存后立即暂停导致重复执行）
                 if self._execution_states.get(task_id) == ExecutionState.PAUSED:
                     await self._wait_for_resume(task_id)
                 
@@ -284,6 +399,10 @@ class TaskExecutor:
                 
                 # 执行操作（带重试和验证）
                 action_start_time = datetime.now()
+                action_success = False
+                action_result = None
+                action_error = None
+                
                 try:
                     # 使用重试策略执行操作
                     success, result, error = await execute_with_retry(
@@ -294,6 +413,9 @@ class TaskExecutor:
                         context
                     )
                     
+                    action_success = success
+                    action_result = result
+                    action_error = error
                     execution_time = (datetime.now() - action_start_time).total_seconds()
                     
                     if success:
@@ -308,10 +430,14 @@ class TaskExecutor:
                         })
                         
                         progress.complete_action(execution_time)
-                        context.move_to_next_action()
+                        # 注意：不在这里调用 move_to_next_action()，让循环自然递增
                         
                         # 添加到会话历史
                         session.add_action(action)
+                        
+                        # 保存检查点（在成功执行后保存，确保恢复时从正确的位置继续）
+                        await self._save_checkpoint(task_id, session.id, context, db)
+                        
                     else:
                         # 操作失败（重试后仍然失败）
                         results.append({
@@ -327,13 +453,12 @@ class TaskExecutor:
                         
                         # 根据配置决定是否继续
                         if task.config.get("stop_on_error", True):
-                            raise error or Exception("Action execution failed")
-                        else:
-                            # 继续执行下一个操作
-                            context.move_to_next_action()
-                            continue
+                            # 提供更具体的错误信息
+                            error_msg = str(error) if error else "Action execution failed"
+                            raise Exception(f"Action {i} ({action.action_type.value}) failed: {error_msg}")
+                        # 如果 stop_on_error=False，继续执行下一个操作（不调用 move_to_next_action，让循环自然递增）
                     
-                    # 更新执行进度到数据库（用于前端显示）
+                    # 更新执行进度到数据库（无论成功或失败都更新）
                     await self._update_execution_progress(execution_id, progress, db)
                     
                 except Exception as e:
@@ -351,12 +476,16 @@ class TaskExecutor:
                     
                     progress.fail_action(execution_time)
                     
+                    # 更新执行进度（即使失败也要更新）
+                    try:
+                        await self._update_execution_progress(execution_id, progress, db)
+                    except Exception as progress_error:
+                        logger.warning(f"Failed to update progress: {progress_error}")
+                    
                     # 根据配置决定是否继续
                     if task.config.get("stop_on_error", True):
                         raise
-                    else:
-                        context.move_to_next_action()
-                        continue
+                    # 如果 stop_on_error=False，继续执行下一个操作
             
             # 执行成功
             self._execution_states[task_id] = ExecutionState.COMPLETED
@@ -370,17 +499,29 @@ class TaskExecutor:
             )
             
             # 更新执行记录
-            await db.execute(
-                update(ExecutionRecordModel)
-                .where(ExecutionRecordModel.id == execution_id)
-                .values(
-                    status="completed",
-                    end_time=datetime.now(),
-                    duration=int((datetime.now() - session.created_at).total_seconds()),
-                    result={"results": results}
+            try:
+                await db.execute(
+                    update(ExecutionRecordModel)
+                    .where(ExecutionRecordModel.id == execution_id)
+                    .values(
+                        status="completed",
+                        end_time=datetime.now(),
+                        duration=int((datetime.now() - session.created_at).total_seconds()),
+                        result={"results": results}
+                    )
                 )
-            )
-            await db.commit()
+                await db.commit()
+            except Exception as e:
+                await db.rollback()
+                logger.error(f"Failed to update execution record: {e}")
+                raise
+            
+            # 关闭驱动（在停止会话前）
+            if driver:
+                try:
+                    await driver.stop()
+                except Exception as driver_error:
+                    logger.warning(f"Failed to stop driver: {driver_error}")
             
             # 停止会话
             session.stop()
@@ -406,30 +547,53 @@ class TaskExecutor:
             )
             
             # 更新执行记录
-            await db.execute(
-                update(ExecutionRecordModel)
-                .where(ExecutionRecordModel.id == execution_id)
-                .values(
-                    status="failed",
-                    end_time=datetime.now(),
-                    error_message="Task stopped by user"
+            try:
+                await db.execute(
+                    update(ExecutionRecordModel)
+                    .where(ExecutionRecordModel.id == execution_id)
+                    .values(
+                        status="failed",
+                        end_time=datetime.now(),
+                        error_message="Task stopped by user"
+                    )
                 )
-            )
-            await db.commit()
+                await db.commit()
+            except Exception as e:
+                await db.rollback()
+                logger.error(f"Failed to update execution record: {e}")
+            
+            # 关闭驱动（如果存在）
+            if driver:
+                try:
+                    await driver.stop()
+                except Exception as driver_error:
+                    logger.warning(f"Failed to stop driver: {driver_error}")
             
             # 停止会话
             if session:
-                session.stop()
-                session_manager = get_global_session_manager(db_session=db)
-                await session_manager.update_session_state(
-                    session.id,
-                    SessionState.STOPPED,
-                    db_session=db
-                )
+                try:
+                    if session.state == SessionState.RUNNING:
+                        session.stop()
+                    else:
+                        session.terminate("Task stopped by user")
+                    session_manager = get_global_session_manager(db_session=db)
+                    await session_manager.update_session_state(
+                        session.id,
+                        SessionState.STOPPED,
+                        db_session=db
+                    )
+                except Exception as session_error:
+                    logger.warning(f"Failed to update session state: {session_error}")
             
             logger.info(f"Task {task_id} execution stopped")
             
         except Exception as e:
+            # 确保驱动被关闭
+            if driver:
+                try:
+                    await driver.stop()  # 使用stop()方法而不是close()
+                except Exception as close_error:
+                    logger.warning(f"Failed to stop driver: {close_error}")
             # 执行失败
             self._execution_states[task_id] = ExecutionState.FAILED
             
@@ -443,17 +607,21 @@ class TaskExecutor:
             )
             
             # 更新执行记录
-            await db.execute(
-                update(ExecutionRecordModel)
-                .where(ExecutionRecordModel.id == execution_id)
-                .values(
-                    status="failed",
-                    end_time=datetime.now(),
-                    error_message=str(e),
-                    error_stack=str(e.__traceback__) if hasattr(e, '__traceback__') else None
+            try:
+                await db.execute(
+                    update(ExecutionRecordModel)
+                    .where(ExecutionRecordModel.id == execution_id)
+                    .values(
+                        status="failed",
+                        end_time=datetime.now(),
+                        error_message=str(e),
+                        error_stack=str(e.__traceback__) if hasattr(e, '__traceback__') else None
+                    )
                 )
-            )
-            await db.commit()
+                await db.commit()
+            except Exception as db_error:
+                await db.rollback()
+                logger.error(f"Failed to update execution record: {db_error}")
             
             # 终止会话
             if session:
@@ -467,6 +635,11 @@ class TaskExecutor:
                 )
             
             logger.error(f"Task {task_id} execution failed: {e}")
+        finally:
+            # 清理内存中的执行状态（确保所有路径都清理）
+            if task_id in self._running_executions:
+                del self._running_executions[task_id]
+            # 注意：不删除context、progress、session映射，可能用于恢复和查询
     
     async def _handle_timeout(
         self,
@@ -495,18 +668,20 @@ class TaskExecutor:
         )
         
         # 更新执行记录为失败状态
-        await db.execute(
-            update(ExecutionRecordModel)
-            .where(ExecutionRecordModel.id == execution_id)
-            .set(
-                {
-                    "status": "failed",
-                    "end_time": datetime.now(),
-                    "error_message": "Task execution timeout",
-                }
+        try:
+            await db.execute(
+                update(ExecutionRecordModel)
+                .where(ExecutionRecordModel.id == execution_id)
+                .values(
+                    status="failed",
+                    end_time=datetime.now(),
+                    error_message="Task execution timeout"
+                )
             )
-        )
-        await db.commit()
+            await db.commit()
+        except Exception as e:
+            await db.rollback()
+            logger.error(f"Failed to update execution record for timeout: {e}")
 
         # 清理内存中的执行状态
         if task_id in self._running_executions:
@@ -541,7 +716,8 @@ class TaskExecutor:
             await driver.start(**config)
             return driver
         elif driver_type == DriverType.DESKTOP:
-            driver = DesktopDriver(config=config)
+            from ..drivers.desktop_driver import create_driver
+            driver = create_driver()  # 根据平台自动创建对应的驱动（WindowsDriver/MacOSDriver/LinuxDriver）
             await driver.start(**config)
             return driver
         else:
@@ -614,7 +790,7 @@ class TaskExecutor:
             "success": True,
             "message": "Task paused",
             "task_id": task_id,
-            "checkpoint_saved": context is not None if task_id in self._execution_contexts else False
+            "checkpoint_saved": (context is not None) if (task_id in self._execution_contexts) else False
         }
     
     async def resume_task(
@@ -695,8 +871,11 @@ class TaskExecutor:
         self._execution_contexts[task_id] = context
         
         # 恢复执行进度
+        # 注意：如果从检查点恢复，current_action_index是下一个要执行的action
+        # 所以completed_actions应该是current_action_index（因为检查点在成功后保存）
         progress = ExecutionProgress(total_actions=len(task.actions))
         progress.completed_actions = context.current_action_index
+        progress.start()  # 重新开始计时
         self._execution_progress[task_id] = progress
         
         # 更新状态
@@ -711,16 +890,78 @@ class TaskExecutor:
         
         # 恢复会话
         session = await session_manager.get_session(session_id, db_session=db)
-        if session:
-            session.resume()
-            await session_manager.update_session_state(
-                session_id,
-                SessionState.RUNNING,
-                db_session=db
+        if not session:
+            return {
+                "success": False,
+                "message": "Session not found",
+                "task_id": task_id
+            }
+        
+        # 检查会话状态，只有PAUSED状态才能恢复
+        if session.state != SessionState.PAUSED:
+            return {
+                "success": False,
+                "message": f"Cannot resume session in state: {session.state.value}",
+                "task_id": task_id
+            }
+        
+        session.resume()
+        await session_manager.update_session_state(
+            session_id,
+            SessionState.RUNNING,
+            db_session=db
+        )
+        
+        # 重新启动执行任务（关键修复：恢复任务需要重新启动执行）
+        # 注意：driver会在_execute_task_async中重新创建，因为原来的driver可能已关闭
+        timeout = task.config.get("timeout", 3600)
+        
+        # 获取执行记录ID（从最新的执行记录获取）
+        from ..models.sqlalchemy_models import ExecutionRecord as ExecutionRecordModel
+        from sqlalchemy import desc
+        try:
+            task_id_int = int(task_id)
+        except (ValueError, TypeError):
+            # 如果task_id不是数字，尝试从数据库查询
+            from ..models.sqlalchemy_models import Task as TaskModel
+            result = await db.execute(
+                select(TaskModel).where(TaskModel.name == task_id).limit(1)
             )
+            task_obj = result.scalar_one_or_none()
+            if task_obj:
+                task_id_int = task_obj.id
+            else:
+                return {
+                    "success": False,
+                    "message": "Invalid task_id",
+                    "task_id": task_id
+                }
+        
+        result = await db.execute(
+            select(ExecutionRecordModel)
+            .where(ExecutionRecordModel.task_id == task_id_int)
+            .order_by(desc(ExecutionRecordModel.start_time))
+            .limit(1)
+        )
+        execution_record = result.scalar_one_or_none()
+        
+        if not execution_record:
+            return {
+                "success": False,
+                "message": "Execution record not found",
+                "task_id": task_id
+            }
+        
+        # 重新创建执行任务
+        execution_task = asyncio.create_task(
+            self._execute_task_with_timeout(
+                task_id, task, session, execution_record.id, db, timeout
+            )
+        )
+        self._running_executions[task_id] = execution_task
         
         logger.info(
-            f"Task {task_id} resumed from checkpoint at action {context.current_action_index}"
+            f"Task {task_id} resumed from checkpoint at action {context.current_action_index} and restarted"
         )
         
         return {
@@ -762,14 +1003,23 @@ class TaskExecutor:
         
         # 更新任务状态
         db = db_session or self._db_session
+        if not db:
+            # 如果没有db，尝试使用self._db_session
+            db = self._db_session
+        
         if db:
-            task_manager = get_global_task_manager(db_session=db)
-            await task_manager.update_task_status(
-                task_id,
-                TaskStatus.FAILED,
-                error="Task stopped by user",
-                db_session=db
-            )
+            try:
+                task_manager = get_global_task_manager(db_session=db)
+                await task_manager.update_task_status(
+                    task_id,
+                    TaskStatus.FAILED,
+                    error="Task stopped by user",
+                    db_session=db
+                )
+            except Exception as e:
+                logger.warning(f"Failed to update task status: {e}")
+        else:
+            logger.warning(f"No database session available to update task status for task {task_id}")
         
         logger.info(f"Task {task_id} stopped")
         

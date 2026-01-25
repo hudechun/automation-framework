@@ -3,10 +3,19 @@ Windows桌面驱动实现 - 基于pywinauto
 """
 from typing import Any, Optional, List, Dict
 import logging
+import asyncio
+import os
 
 from .desktop_driver import DesktopDriver, UIElement
 from ..core.interfaces import Action
-from ..core.actions import Click, Type, GetText
+from ..core.actions import (
+    Click, DoubleClick, RightClick, Hover, Type, GetText,
+    Press, PressCombo, Clear, Sleep,
+    StartApp, SwitchWindow, CloseWindow,
+    Copy, Paste, Cut,
+    OpenFile, SaveFile, SaveAs,
+    ClickCoordinate
+)
 
 logger = logging.getLogger(__name__)
 
@@ -206,8 +215,17 @@ class WindowsDriver(DesktopDriver):
         Returns:
             找到的元素
         """
+        # 如果current_window为None，尝试查找活动窗口
         if not self.current_window:
-            raise RuntimeError("No active window")
+            if self._app:
+                try:
+                    self.current_window = self._app.top_window()
+                    logger.info("Using default top window for element search")
+                except Exception as e:
+                    logger.error(f"Failed to get default window: {e}")
+                    raise RuntimeError("No active window and cannot find default window")
+            else:
+                raise RuntimeError("No active window and no application instance")
         
         try:
             if name:
@@ -272,28 +290,365 @@ class WindowsDriver(DesktopDriver):
         # 根据操作类型分发
         if isinstance(action, Click):
             return await self._handle_click(action)
+        elif isinstance(action, DoubleClick):
+            return await self._handle_double_click(action)
+        elif isinstance(action, RightClick):
+            return await self._handle_right_click(action)
+        elif isinstance(action, Hover):
+            return await self._handle_hover(action)
         elif isinstance(action, Type):
             return await self._handle_type(action)
         elif isinstance(action, GetText):
             return await self._handle_get_text(action)
+        elif isinstance(action, Press):
+            return await self._handle_press(action)
+        elif isinstance(action, PressCombo):
+            return await self._handle_press_combo(action)
+        elif isinstance(action, Clear):
+            return await self._handle_clear(action)
+        elif isinstance(action, Sleep):
+            return await self._handle_sleep(action)
+        elif isinstance(action, StartApp):
+            return await self._handle_start_app(action)
+        elif isinstance(action, SwitchWindow):
+            return await self._handle_switch_window(action)
+        elif isinstance(action, CloseWindow):
+            return await self._handle_close_window(action)
+        elif isinstance(action, Copy):
+            return await self._handle_copy(action)
+        elif isinstance(action, Paste):
+            return await self._handle_paste(action)
+        elif isinstance(action, Cut):
+            return await self._handle_cut(action)
+        elif isinstance(action, OpenFile):
+            return await self._handle_open_file(action)
+        elif isinstance(action, SaveFile):
+            return await self._handle_save_file(action)
+        elif isinstance(action, SaveAs):
+            return await self._handle_save_as(action)
+        elif isinstance(action, ClickCoordinate):
+            return await self._handle_click_coordinate(action)
         else:
             raise NotImplementedError(f"Action {type(action).__name__} not implemented")
     
     async def _handle_click(self, action: Click) -> None:
         """处理点击操作"""
-        element = await self.find_element(name=action.selector)
+        # 支持多种selector格式
+        element = await self._find_element_by_selector(action.selector)
         if element:
             element.click()
+        else:
+            raise RuntimeError(f"Element not found: {action.selector}")
     
     async def _handle_type(self, action: Type) -> None:
         """处理输入操作"""
-        element = await self.find_element(name=action.selector)
+        # 支持多种selector格式
+        element = await self._find_element_by_selector(action.selector)
         if element:
             element.type_keys(action.text, pause=action.delay / 1000)
+        else:
+            raise RuntimeError(f"Element not found: {action.selector}")
     
     async def _handle_get_text(self, action: GetText) -> str:
         """处理获取文本操作"""
-        element = await self.find_element(name=action.selector)
+        # 支持多种selector格式
+        element = await self._find_element_by_selector(action.selector)
         if element:
             return element.window_text()
         return ""
+    
+    async def _find_element_by_selector(self, selector: str) -> Optional[Any]:
+        """
+        根据selector查找元素，支持多种格式
+        
+        Args:
+            selector: 选择器，支持格式：
+                - 元素名称: "Button1"
+                - 元素ID: "#element_id"
+                - 元素类型: ".Button"
+                - 坐标: "(100, 200)" (暂不支持，需要pyautogui)
+        
+        Returns:
+            找到的元素
+        """
+        if not selector:
+            return None
+        
+        # 尝试按ID查找（格式: #element_id）
+        if selector.startswith("#"):
+            element_id = selector[1:]
+            return await self.find_element(element_id=element_id)
+        
+        # 尝试按类型查找（格式: .Button）
+        if selector.startswith("."):
+            element_type = selector[1:]
+            return await self.find_element(element_type=element_type)
+        
+        # 尝试按名称查找（默认）
+        return await self.find_element(name=selector)
+    
+    async def _handle_double_click(self, action: DoubleClick) -> None:
+        """处理双击操作"""
+        element = await self._find_element_by_selector(action.selector)
+        if element:
+            element.double_click()
+        else:
+            raise RuntimeError(f"Element not found: {action.selector}")
+    
+    async def _handle_right_click(self, action: RightClick) -> None:
+        """处理右键点击操作"""
+        element = await self._find_element_by_selector(action.selector)
+        if element:
+            element.right_click()
+        else:
+            raise RuntimeError(f"Element not found: {action.selector}")
+    
+    async def _handle_hover(self, action: Hover) -> None:
+        """处理悬停操作"""
+        element = await self._find_element_by_selector(action.selector)
+        if element:
+            element.hover_input()
+        else:
+            raise RuntimeError(f"Element not found: {action.selector}")
+    
+    async def _handle_press(self, action: Press) -> None:
+        """处理按键操作"""
+        if not self.current_window:
+            # 尝试获取当前窗口
+            if self._app:
+                try:
+                    self.current_window = self._app.top_window()
+                except:
+                    raise RuntimeError("No active window for key press")
+            else:
+                raise RuntimeError("No active window and no application instance")
+        
+        # 使用pywinauto的type_keys方法
+        try:
+            self.current_window.type_keys(action.key)
+        except Exception as e:
+            logger.error(f"Failed to press key: {e}")
+            raise
+    
+    async def _handle_press_combo(self, action: PressCombo) -> None:
+        """处理组合键操作"""
+        if not self.current_window:
+            if self._app:
+                try:
+                    self.current_window = self._app.top_window()
+                except:
+                    raise RuntimeError("No active window for key combo")
+            else:
+                raise RuntimeError("No active window and no application instance")
+        
+        # 组合键格式: ["ctrl", "s"] -> "{Ctrl}s"
+        try:
+            key_combo = "+".join(action.keys).lower()
+            # 转换常见组合键
+            key_combo = key_combo.replace("ctrl", "ctrl")
+            key_combo = key_combo.replace("alt", "alt")
+            key_combo = key_combo.replace("shift", "shift")
+            self.current_window.type_keys(f"{{{key_combo}}}")
+        except Exception as e:
+            logger.error(f"Failed to press combo keys: {e}")
+            raise
+    
+    async def _handle_clear(self, action: Clear) -> None:
+        """处理清空输入框操作"""
+        element = await self._find_element_by_selector(action.selector)
+        if element:
+            element.set_text("")
+        else:
+            raise RuntimeError(f"Element not found: {action.selector}")
+    
+    async def _handle_sleep(self, action: Sleep) -> None:
+        """处理休眠操作"""
+        import asyncio
+        await asyncio.sleep(action.duration / 1000)
+    
+    async def _handle_start_app(self, action: StartApp) -> None:
+        """处理启动应用操作"""
+        await self.start_app(action.app_path, **action.kwargs)
+        if action.window_title:
+            await asyncio.sleep(1.0)  # 等待应用启动
+            window = await self.find_window(action.window_title)
+            if window:
+                await self.activate_window(window)
+    
+    async def _handle_switch_window(self, action: SwitchWindow) -> None:
+        """处理切换窗口操作"""
+        window = await self.find_window(action.window_title)
+        if window:
+            await self.activate_window(window)
+        else:
+            raise RuntimeError(f"Window not found: {action.window_title}")
+    
+    async def _handle_close_window(self, action: CloseWindow) -> None:
+        """处理关闭窗口操作"""
+        if action.window_title:
+            window = await self.find_window(action.window_title)
+            if window:
+                await self.close_window(window)
+            else:
+                raise RuntimeError(f"Window not found: {action.window_title}")
+        else:
+            # 关闭当前窗口
+            if self.current_window:
+                await self.close_window(self.current_window)
+            else:
+                raise RuntimeError("No active window to close")
+    
+    async def _handle_copy(self, action: Copy) -> None:
+        """处理复制操作"""
+        if action.selector:
+            # 如果有selector，先选中元素
+            element = await self._find_element_by_selector(action.selector)
+            if element:
+                element.select()
+        # 使用Ctrl+C
+        if not self.current_window:
+            if self._app:
+                try:
+                    self.current_window = self._app.top_window()
+                except:
+                    raise RuntimeError("No active window for copy")
+            else:
+                raise RuntimeError("No active window and no application instance")
+        
+        try:
+            self.current_window.type_keys("^c")  # Ctrl+C
+        except Exception as e:
+            logger.error(f"Failed to copy: {e}")
+            raise
+    
+    async def _handle_paste(self, action: Paste) -> None:
+        """处理粘贴操作"""
+        if not self.current_window:
+            if self._app:
+                try:
+                    self.current_window = self._app.top_window()
+                except:
+                    raise RuntimeError("No active window for paste")
+            else:
+                raise RuntimeError("No active window and no application instance")
+        
+        try:
+            if action.selector:
+                # 如果有selector，先定位到元素
+                element = await self._find_element_by_selector(action.selector)
+                if element:
+                    element.set_focus()
+            self.current_window.type_keys("^v")  # Ctrl+V
+        except Exception as e:
+            logger.error(f"Failed to paste: {e}")
+            raise
+    
+    async def _handle_cut(self, action: Cut) -> None:
+        """处理剪切操作"""
+        if action.selector:
+            element = await self._find_element_by_selector(action.selector)
+            if element:
+                element.select()
+        
+        if not self.current_window:
+            if self._app:
+                try:
+                    self.current_window = self._app.top_window()
+                except:
+                    raise RuntimeError("No active window for cut")
+            else:
+                raise RuntimeError("No active window and no application instance")
+        
+        try:
+            self.current_window.type_keys("^x")  # Ctrl+X
+        except Exception as e:
+            logger.error(f"Failed to cut: {e}")
+            raise
+    
+    async def _handle_open_file(self, action: OpenFile) -> None:
+        """处理打开文件操作"""
+        import os
+        
+        if action.app_path:
+            # 如果指定了应用，先启动应用
+            await self.start_app(action.app_path)
+            await asyncio.sleep(1.0)
+        
+        if not self.current_window:
+            if self._app:
+                try:
+                    self.current_window = self._app.top_window()
+                except:
+                    raise RuntimeError("No active window for open file")
+            else:
+                raise RuntimeError("No active window and no application instance")
+        
+        # 使用Ctrl+O打开文件对话框
+        try:
+            self.current_window.type_keys("^o")  # Ctrl+O
+            await asyncio.sleep(0.5)
+            
+            # 在文件对话框中输入文件路径
+            # 注意：这需要文件对话框已经打开
+            # 实际实现可能需要更复杂的逻辑来操作文件对话框
+            file_path = os.path.abspath(action.file_path)
+            self.current_window.type_keys(file_path)
+            await asyncio.sleep(0.3)
+            self.current_window.type_keys("{ENTER}")
+        except Exception as e:
+            logger.error(f"Failed to open file: {e}")
+            raise
+    
+    async def _handle_save_file(self, action: SaveFile) -> None:
+        """处理保存文件操作"""
+        if not self.current_window:
+            if self._app:
+                try:
+                    self.current_window = self._app.top_window()
+                except:
+                    raise RuntimeError("No active window for save file")
+            else:
+                raise RuntimeError("No active window and no application instance")
+        
+        try:
+            self.current_window.type_keys("^s")  # Ctrl+S
+        except Exception as e:
+            logger.error(f"Failed to save file: {e}")
+            raise
+    
+    async def _handle_save_as(self, action: SaveAs) -> None:
+        """处理另存为操作"""
+        if not self.current_window:
+            if self._app:
+                try:
+                    self.current_window = self._app.top_window()
+                except:
+                    raise RuntimeError("No active window for save as")
+            else:
+                raise RuntimeError("No active window and no application instance")
+        
+        try:
+            # 使用Ctrl+Shift+S或F12打开另存为对话框
+            self.current_window.type_keys("^+s")  # Ctrl+Shift+S
+            await asyncio.sleep(0.5)
+            
+            # 在文件对话框中输入文件路径
+            file_path = os.path.abspath(action.file_path)
+            self.current_window.type_keys(file_path)
+            await asyncio.sleep(0.3)
+            self.current_window.type_keys("{ENTER}")
+        except Exception as e:
+            logger.error(f"Failed to save as: {e}")
+            raise
+    
+    async def _handle_click_coordinate(self, action: ClickCoordinate) -> None:
+        """处理坐标点击操作"""
+        try:
+            import pyautogui
+            pyautogui.click(action.x, action.y, button=action.button)
+        except ImportError:
+            logger.error("pyautogui not installed. Install with: pip install pyautogui")
+            raise
+        except Exception as e:
+            logger.error(f"Failed to click at coordinate ({action.x}, {action.y}): {e}")
+            raise

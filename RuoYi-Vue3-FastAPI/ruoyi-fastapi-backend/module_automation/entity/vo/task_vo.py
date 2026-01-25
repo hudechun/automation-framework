@@ -76,3 +76,13 @@ class ExecuteTaskModel(BaseModel):
     model_config = ConfigDict(alias_generator=to_camel)
 
     task_id: int = Field(description='任务ID')
+
+
+class ParseTaskModel(BaseModel):
+    """
+    解析自然语言任务模型
+    """
+
+    model_config = ConfigDict(alias_generator=to_camel)
+
+    description: str = Field(description='自然语言任务描述')

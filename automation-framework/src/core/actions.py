@@ -516,3 +516,164 @@ class Sleep(Action):
         import asyncio
         await asyncio.sleep(self.duration / 1000)  # 转换为秒
         return None
+
+
+# ==================== 桌面专用操作 ====================
+
+class StartApp(Action):
+    """启动应用程序（桌面专用）"""
+    
+    def __init__(self, app_path: str, window_title: Optional[str] = None, **kwargs: Any):
+        super().__init__(ActionType.NAVIGATION, app_path=app_path, window_title=window_title, **kwargs)
+        self.app_path = app_path
+        self.window_title = window_title
+        self.kwargs = kwargs
+    
+    def validate(self) -> bool:
+        """验证参数"""
+        return bool(self.app_path and isinstance(self.app_path, str))
+    
+    async def execute(self, driver: Driver) -> Any:
+        """执行启动应用操作"""
+        if not self.validate():
+            raise ValueError("Invalid app_path parameter")
+        return await driver.execute_action(self)
+
+
+class SwitchWindow(Action):
+    """切换窗口（桌面专用）"""
+    
+    def __init__(self, window_title: str):
+        super().__init__(ActionType.NAVIGATION, window_title=window_title)
+        self.window_title = window_title
+    
+    def validate(self) -> bool:
+        """验证参数"""
+        return bool(self.window_title and isinstance(self.window_title, str))
+    
+    async def execute(self, driver: Driver) -> Any:
+        """执行切换窗口操作"""
+        if not self.validate():
+            raise ValueError("Invalid window_title parameter")
+        return await driver.execute_action(self)
+
+
+class CloseWindow(Action):
+    """关闭窗口（桌面专用）"""
+    
+    def __init__(self, window_title: Optional[str] = None):
+        super().__init__(ActionType.INTERACTION, window_title=window_title)
+        self.window_title = window_title
+    
+    async def execute(self, driver: Driver) -> Any:
+        """执行关闭窗口操作"""
+        return await driver.execute_action(self)
+
+
+class Copy(Action):
+    """复制操作（桌面专用）"""
+    
+    def __init__(self, selector: Optional[str] = None):
+        super().__init__(ActionType.INPUT, selector=selector)
+        self.selector = selector
+    
+    async def execute(self, driver: Driver) -> Any:
+        """执行复制操作"""
+        return await driver.execute_action(self)
+
+
+class Paste(Action):
+    """粘贴操作（桌面专用）"""
+    
+    def __init__(self, selector: Optional[str] = None):
+        super().__init__(ActionType.INPUT, selector=selector)
+        self.selector = selector
+    
+    async def execute(self, driver: Driver) -> Any:
+        """执行粘贴操作"""
+        return await driver.execute_action(self)
+
+
+class Cut(Action):
+    """剪切操作（桌面专用）"""
+    
+    def __init__(self, selector: Optional[str] = None):
+        super().__init__(ActionType.INPUT, selector=selector)
+        self.selector = selector
+    
+    async def execute(self, driver: Driver) -> Any:
+        """执行剪切操作"""
+        return await driver.execute_action(self)
+
+
+class OpenFile(Action):
+    """打开文件（桌面专用）"""
+    
+    def __init__(self, file_path: str, app_path: Optional[str] = None):
+        super().__init__(ActionType.NAVIGATION, file_path=file_path, app_path=app_path)
+        self.file_path = file_path
+        self.app_path = app_path
+    
+    def validate(self) -> bool:
+        """验证参数"""
+        return bool(self.file_path and isinstance(self.file_path, str))
+    
+    async def execute(self, driver: Driver) -> Any:
+        """执行打开文件操作"""
+        if not self.validate():
+            raise ValueError("Invalid file_path parameter")
+        return await driver.execute_action(self)
+
+
+class SaveFile(Action):
+    """保存文件（桌面专用）"""
+    
+    def __init__(self, file_path: Optional[str] = None):
+        super().__init__(ActionType.INPUT, file_path=file_path)
+        self.file_path = file_path
+    
+    async def execute(self, driver: Driver) -> Any:
+        """执行保存文件操作"""
+        return await driver.execute_action(self)
+
+
+class SaveAs(Action):
+    """另存为（桌面专用）"""
+    
+    def __init__(self, file_path: str):
+        super().__init__(ActionType.INPUT, file_path=file_path)
+        self.file_path = file_path
+    
+    def validate(self) -> bool:
+        """验证参数"""
+        return bool(self.file_path and isinstance(self.file_path, str))
+    
+    async def execute(self, driver: Driver) -> Any:
+        """执行另存为操作"""
+        if not self.validate():
+            raise ValueError("Invalid file_path parameter")
+        return await driver.execute_action(self)
+
+
+class ClickCoordinate(Action):
+    """按坐标点击（桌面专用）"""
+    
+    def __init__(self, x: int, y: int, button: str = "left"):
+        super().__init__(ActionType.INTERACTION, x=x, y=y, button=button)
+        self.x = x
+        self.y = y
+        self.button = button
+    
+    def validate(self) -> bool:
+        """验证参数"""
+        return (
+            isinstance(self.x, int) and
+            isinstance(self.y, int) and
+            self.button in ["left", "right", "middle"]
+        )
+    
+    async def execute(self, driver: Driver) -> Any:
+        """执行坐标点击操作"""
+        if not self.validate():
+            raise ValueError("Invalid coordinate parameters")
+        return await driver.execute_action(self)
