@@ -6,6 +6,7 @@ from .llm import LLMProvider, create_llm_provider
 from .config import ModelConfig, ModelProvider, model_config_from_db_model
 from .scenario_planner import ScenarioPlanner, ScenarioType
 from .rate_limiter import RateLimiter, RateLimitConfig, get_rate_limiter
+from .anthropic_skills_loader import AnthropicSkillsLoader, load_anthropic_skills
 
 __all__ = [
     "Agent",
@@ -21,4 +22,6 @@ __all__ = [
     "RateLimiter",
     "RateLimitConfig",
     "get_rate_limiter",
+    "AnthropicSkillsLoader",
+    "load_anthropic_skills",
 ]
