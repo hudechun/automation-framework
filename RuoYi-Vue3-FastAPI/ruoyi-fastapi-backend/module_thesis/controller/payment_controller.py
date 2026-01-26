@@ -626,6 +626,7 @@ async def mock_payment(
         
     except Exception as e:
         logger.error(f'模拟支付失败: {str(e)}')
+        logger.exception(e)  # 打印完整堆栈
         await query_db.rollback()
         return ResponseUtil.error(msg=f'模拟支付失败: {str(e)}')
 

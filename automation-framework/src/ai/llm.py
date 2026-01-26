@@ -349,20 +349,47 @@ class QwenProvider(LLMProvider):
                 
             except Exception as e:
                 error_str = str(e).lower()
+                error_type = type(e).__name__
+                
+                # 检查是否是连接错误（可重试）
+                is_connection_error = (
+                    "connection" in error_str or
+                    "timeout" in error_str or
+                    "network" in error_str or
+                    "unreachable" in error_str or
+                    "refused" in error_str or
+                    error_type in ("APIConnectionError", "ConnectionError", "TimeoutError", "ConnectTimeout")
+                )
                 
                 # 处理限流错误（429 Too Many Requests）
-                if "429" in error_str or "rate limit" in error_str or "too many requests" in error_str or "请求过于频繁" in error_str:
-                    if attempt < max_retries - 1:
-                        # 指数退避：1s, 2s, 4s
-                        delay = base_delay * (2 ** attempt)
-                        print(f"Rate limit exceeded. Retrying after {delay:.1f} seconds... (attempt {attempt + 1}/{max_retries})")
-                        await asyncio.sleep(delay)
-                        continue
-                    else:
-                        raise Exception(f"Rate limit exceeded after {max_retries} attempts. Please try again later.")
+                is_rate_limit = (
+                    "429" in error_str or
+                    "rate limit" in error_str or
+                    "too many requests" in error_str or
+                    "请求过于频繁" in error_str
+                )
                 
-                # 其他错误直接抛出
-                raise
+                # 连接错误和限流错误都可以重试
+                if (is_connection_error or is_rate_limit) and attempt < max_retries - 1:
+                    delay = base_delay * (2 ** attempt)
+                    error_msg = "连接错误" if is_connection_error else "请求频率限制"
+                    print(f"{error_msg}，{delay:.1f}秒后重试... (尝试 {attempt + 1}/{max_retries})")
+                    await asyncio.sleep(delay)
+                    continue
+                
+                # 构建详细的错误信息
+                if is_connection_error:
+                    base_url = self.config.api_base or "默认端点"
+                    raise Exception(
+                        f"无法连接到AI服务 (尝试 {attempt + 1}/{max_retries}): {str(e)}. "
+                        f"请检查: 1) 网络连接是否正常 2) API端点是否正确 ({base_url}) "
+                        f"3) 防火墙/代理设置 4) API服务是否可用"
+                    )
+                elif is_rate_limit:
+                    raise Exception(f"请求频率限制，已重试 {max_retries} 次。请稍后再试。")
+                else:
+                    # 其他错误直接抛出，但添加更多上下文
+                    raise Exception(f"AI服务调用失败: {str(e)} (类型: {error_type})")
     
     async def stream(
         self,

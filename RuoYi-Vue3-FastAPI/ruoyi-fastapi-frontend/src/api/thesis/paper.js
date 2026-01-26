@@ -47,7 +47,8 @@ export function delPaper(thesisId) {
 export function generateOutline(thesisId) {
   return request({
     url: '/thesis/paper/' + thesisId + '/outline',
-    method: 'post'
+    method: 'post',
+    data: {}
   })
 }
 

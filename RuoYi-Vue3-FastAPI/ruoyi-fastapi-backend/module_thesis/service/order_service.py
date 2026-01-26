@@ -240,7 +240,6 @@ class OrderService:
                 )
             elif order.order_type == 'service':
                 # 处理单次服务购买
-                from module_thesis.dao.order_dao import FeatureServiceDao
                 service = await FeatureServiceDao.get_service_by_id(query_db, order.item_id)
                 if service:
                     # 根据服务类型增加对应配额

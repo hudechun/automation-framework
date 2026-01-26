@@ -41,66 +41,134 @@ CREATE TABLE ai_write_ai_model_config (
 -- 初始化预设模型数据
 -- ============================================================
 
--- OpenAI GPT-4
+-- OpenAI GPT-4o (最新语言模型)
 INSERT INTO ai_write_ai_model_config 
-(model_name, model_code, model_version, api_base_url, api_endpoint, 
+(model_name, model_code, model_version, model_type, provider, api_base_url, api_endpoint, 
  max_tokens, temperature, top_p, is_preset, priority, status, create_by, create_time, remark)
 VALUES 
-('OpenAI GPT-4', 'openai', 'gpt-4', 'https://api.openai.com/v1', '/chat/completions',
- 8192, 0.70, 0.90, '1', 100, '0', 'system', NOW(), '最强大的GPT模型，适合复杂任务');
+('OpenAI GPT-4o', 'openai', 'gpt-4o', 'language', 'openai', 'https://api.openai.com/v1', '/chat/completions',
+ 128000, 0.70, 0.90, '1', 100, '0', 'system', NOW(), '最新最强GPT模型，128K上下文');
 
--- OpenAI GPT-3.5 Turbo
+-- OpenAI GPT-4o Mini
 INSERT INTO ai_write_ai_model_config 
-(model_name, model_code, model_version, api_base_url, api_endpoint,
+(model_name, model_code, model_version, model_type, provider, api_base_url, api_endpoint,
  max_tokens, temperature, top_p, is_preset, priority, status, create_by, create_time, remark)
 VALUES 
-('OpenAI GPT-3.5 Turbo', 'openai', 'gpt-3.5-turbo', 'https://api.openai.com/v1', '/chat/completions',
- 4096, 0.70, 0.90, '1', 90, '0', 'system', NOW(), '性价比高，响应快速');
+('OpenAI GPT-4o Mini', 'openai', 'gpt-4o-mini', 'language', 'openai', 'https://api.openai.com/v1', '/chat/completions',
+ 128000, 0.70, 0.90, '1', 95, '0', 'system', NOW(), '性价比高，速度快');
 
--- Claude 3 Opus
+-- OpenAI GPT-4 Turbo
 INSERT INTO ai_write_ai_model_config 
-(model_name, model_code, model_version, api_base_url, api_endpoint,
+(model_name, model_code, model_version, model_type, provider, api_base_url, api_endpoint,
  max_tokens, temperature, top_p, is_preset, priority, status, create_by, create_time, remark)
 VALUES 
-('Claude 3 Opus', 'claude', 'claude-3-opus-20240229', 'https://api.anthropic.com/v1', '/messages',
- 4096, 0.70, 0.90, '1', 95, '0', 'system', NOW(), 'Anthropic最强模型，擅长长文本');
+('OpenAI GPT-4 Turbo', 'openai', 'gpt-4-turbo', 'language', 'openai', 'https://api.openai.com/v1', '/chat/completions',
+ 128000, 0.70, 0.90, '1', 90, '0', 'system', NOW(), 'GPT-4 Turbo版本');
 
--- 通义千问
+-- Claude 3.5 Sonnet (最新)
 INSERT INTO ai_write_ai_model_config 
-(model_name, model_code, model_version, api_base_url, api_endpoint,
+(model_name, model_code, model_version, model_type, provider, api_base_url, api_endpoint,
  max_tokens, temperature, top_p, is_preset, priority, status, create_by, create_time, remark)
 VALUES 
-('通义千问 Turbo', 'qwen', 'qwen-turbo', 'https://dashscope.aliyuncs.com/api/v1', '/services/aigc/text-generation/generation',
- 6000, 0.70, 0.90, '1', 85, '0', 'system', NOW(), '阿里云大模型，中文优化');
+('Claude 3.5 Sonnet', 'claude', 'claude-3-5-sonnet-20241022', 'language', 'anthropic', 'https://api.anthropic.com/v1', '/messages',
+ 200000, 0.70, 0.90, '1', 98, '0', 'system', NOW(), 'Anthropic最强模型，200K上下文');
 
--- DeepSeek
+-- Claude 3.5 Haiku
 INSERT INTO ai_write_ai_model_config 
-(model_name, model_code, model_version, api_base_url, api_endpoint,
+(model_name, model_code, model_version, model_type, provider, api_base_url, api_endpoint,
  max_tokens, temperature, top_p, is_preset, priority, status, create_by, create_time, remark)
 VALUES 
-('DeepSeek Chat', 'deepseek', 'deepseek-chat', 'https://api.deepseek.com/v1', '/chat/completions',
- 4096, 0.70, 0.90, '1', 80, '0', 'system', NOW(), '国产开源模型，性价比极高');
+('Claude 3.5 Haiku', 'claude', 'claude-3-5-haiku-20241022', 'language', 'anthropic', 'https://api.anthropic.com/v1', '/messages',
+ 200000, 0.70, 0.90, '1', 85, '0', 'system', NOW(), '快速响应，性价比高');
 
--- 文心一言
+-- 通义千问 Max
 INSERT INTO ai_write_ai_model_config 
-(model_name, model_code, model_version, api_base_url, api_endpoint,
+(model_name, model_code, model_version, model_type, provider, api_base_url, api_endpoint,
  max_tokens, temperature, top_p, is_preset, priority, status, create_by, create_time, remark)
 VALUES 
-('文心一言 4.0', 'ernie', 'ernie-4.0', 'https://aip.baidubce.com/rpc/2.0', '/ai_custom/v1/wenxinworkshop/chat/completions_pro',
- 2048, 0.70, 0.90, '1', 75, '0', 'system', NOW(), '百度大模型，中文理解强');
+('通义千问 Max', 'qwen', 'qwen-max', 'language', 'qwen', 'https://dashscope.aliyuncs.com/api/v1', '/services/aigc/text-generation/generation',
+ 8000, 0.70, 0.90, '1', 88, '0', 'system', NOW(), '阿里云最强模型，中文优化');
 
--- 智谱AI
+-- 通义千问 Plus
 INSERT INTO ai_write_ai_model_config 
-(model_name, model_code, model_version, api_base_url, api_endpoint,
+(model_name, model_code, model_version, model_type, provider, api_base_url, api_endpoint,
  max_tokens, temperature, top_p, is_preset, priority, status, create_by, create_time, remark)
 VALUES 
-('智谱 GLM-4', 'zhipu', 'glm-4', 'https://open.bigmodel.cn/api/paas/v4', '/chat/completions',
- 4096, 0.70, 0.90, '1', 70, '0', 'system', NOW(), '清华大模型，学术场景优化');
+('通义千问 Plus', 'qwen', 'qwen-plus', 'language', 'qwen', 'https://dashscope.aliyuncs.com/api/v1', '/services/aigc/text-generation/generation',
+ 8000, 0.70, 0.90, '1', 83, '0', 'system', NOW(), '平衡性能与成本');
+
+-- 通义千问 Flash
+INSERT INTO ai_write_ai_model_config 
+(model_name, model_code, model_version, model_type, provider, api_base_url, api_endpoint,
+ max_tokens, temperature, top_p, is_preset, priority, status, create_by, create_time, remark)
+VALUES 
+('通义千问 Flash', 'qwen', 'qwen-flash', 'language', 'qwen', 'https://dashscope.aliyuncs.com/api/v1', '/services/aigc/text-generation/generation',
+ 8000, 0.70, 0.90, '1', 78, '0', 'system', NOW(), '极速响应，适合简单任务');
+
+-- 通义千问 Long
+INSERT INTO ai_write_ai_model_config 
+(model_name, model_code, model_version, model_type, provider, api_base_url, api_endpoint,
+ max_tokens, temperature, top_p, is_preset, priority, status, create_by, create_time, remark)
+VALUES 
+('通义千问 Long', 'qwen', 'qwen-long', 'language', 'qwen', 'https://dashscope.aliyuncs.com/api/v1', '/services/aigc/text-generation/generation',
+ 10000000, 0.70, 0.90, '1', 80, '0', 'system', NOW(), '超长上下文，1000万token');
+
+-- DeepSeek Chat
+INSERT INTO ai_write_ai_model_config 
+(model_name, model_code, model_version, model_type, provider, api_base_url, api_endpoint,
+ max_tokens, temperature, top_p, is_preset, priority, status, create_by, create_time, remark)
+VALUES 
+('DeepSeek Chat', 'deepseek', 'deepseek-chat', 'language', 'deepseek', 'https://api.deepseek.com/v1', '/chat/completions',
+ 4096, 0.70, 0.90, '1', 75, '0', 'system', NOW(), '国产开源模型，性价比极高');
+
+-- 文心一言 4.0
+INSERT INTO ai_write_ai_model_config 
+(model_name, model_code, model_version, model_type, provider, api_base_url, api_endpoint,
+ max_tokens, temperature, top_p, is_preset, priority, status, create_by, create_time, remark)
+VALUES 
+('文心一言 4.0', 'ernie', 'ernie-4.0', 'language', 'ernie', 'https://aip.baidubce.com/rpc/2.0', '/ai_custom/v1/wenxinworkshop/chat/completions_pro',
+ 2048, 0.70, 0.90, '1', 70, '0', 'system', NOW(), '百度大模型，中文理解强');
+
+-- 智谱 GLM-4
+INSERT INTO ai_write_ai_model_config 
+(model_name, model_code, model_version, model_type, provider, api_base_url, api_endpoint,
+ max_tokens, temperature, top_p, is_preset, priority, status, create_by, create_time, remark)
+VALUES 
+('智谱 GLM-4', 'zhipu', 'glm-4', 'language', 'zhipu', 'https://open.bigmodel.cn/api/paas/v4', '/chat/completions',
+ 4096, 0.70, 0.90, '1', 68, '0', 'system', NOW(), '清华大模型，学术场景优化');
 
 -- Moonshot AI (Kimi)
 INSERT INTO ai_write_ai_model_config 
-(model_name, model_code, model_version, api_base_url, api_endpoint,
+(model_name, model_code, model_version, model_type, provider, api_base_url, api_endpoint,
  max_tokens, temperature, top_p, is_preset, priority, status, create_by, create_time, remark)
 VALUES 
-('Moonshot AI', 'moonshot', 'moonshot-v1-8k', 'https://api.moonshot.cn/v1', '/chat/completions',
+('Moonshot AI', 'moonshot', 'moonshot-v1-8k', 'language', 'moonshot', 'https://api.moonshot.cn/v1', '/chat/completions',
  8192, 0.70, 0.90, '1', 65, '0', 'system', NOW(), '超长上下文，适合长文档');
+
+-- ============================================================
+-- 视觉模型（用于图像识别、OCR等）
+-- ============================================================
+
+-- GPT-4 Vision
+INSERT INTO ai_write_ai_model_config 
+(model_name, model_code, model_version, model_type, provider, api_base_url, api_endpoint,
+ max_tokens, temperature, top_p, is_preset, priority, status, create_by, create_time, remark)
+VALUES 
+('GPT-4 Vision', 'openai', 'gpt-4-vision-preview', 'vision', 'openai', 'https://api.openai.com/v1', '/chat/completions',
+ 4096, 0.70, 0.90, '1', 90, '0', 'system', NOW(), 'OpenAI视觉模型，图像理解');
+
+-- Claude 3.5 Sonnet Vision
+INSERT INTO ai_write_ai_model_config 
+(model_name, model_code, model_version, model_type, provider, api_base_url, api_endpoint,
+ max_tokens, temperature, top_p, is_preset, priority, status, create_by, create_time, remark)
+VALUES 
+('Claude 3.5 Vision', 'claude', 'claude-3-5-sonnet-20241022', 'vision', 'anthropic', 'https://api.anthropic.com/v1', '/messages',
+ 4096, 0.70, 0.90, '1', 88, '0', 'system', NOW(), 'Claude视觉模型，支持图像分析');
+
+-- 通义千问 VL Plus
+INSERT INTO ai_write_ai_model_config 
+(model_name, model_code, model_version, model_type, provider, api_base_url, api_endpoint,
+ max_tokens, temperature, top_p, is_preset, priority, status, create_by, create_time, remark)
+VALUES 
+('通义千问 VL Plus', 'qwen', 'qwen-vl-plus', 'vision', 'qwen', 'https://dashscope.aliyuncs.com/api/v1', '/services/aigc/multimodal-generation/generation',
+ 6000, 0.70, 0.90, '1', 85, '0', 'system', NOW(), '阿里云视觉模型，OCR识别');

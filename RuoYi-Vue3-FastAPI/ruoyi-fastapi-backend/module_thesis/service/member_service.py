@@ -196,32 +196,37 @@ class MemberService:
 
         try:
             if existing_membership:
-                # 续费会员
-                new_expire_time = max(
-                    existing_membership.expire_time or datetime.now(),
+                # 续费会员 - 延长结束时间
+                new_end_date = max(
+                    existing_membership.end_date or datetime.now(),
                     datetime.now()
                 ) + timedelta(days=package.duration_days)
 
-                await UserMembershipDao.renew_membership(
+                await UserMembershipDao.update_membership(
                     query_db,
-                    user_id,
-                    package.package_type,
-                    new_expire_time
+                    {
+                        'membership_id': existing_membership.membership_id,
+                        'end_date': new_end_date,
+                        'status': '0',  # 激活状态
+                    }
                 )
             else:
                 # 新开通会员
                 membership_data = {
                     'user_id': user_id,
                     'package_id': package_id,
-                    'package_type': package.package_type,
-                    'start_time': datetime.now(),
-                    'expire_time': datetime.now() + timedelta(days=package.duration_days),
-                    'status': 'active',
+                    'total_word_quota': package.word_quota,
+                    'used_word_quota': 0,
+                    'total_usage_quota': package.usage_quota,
+                    'used_usage_quota': 0,
+                    'start_date': datetime.now(),
+                    'end_date': datetime.now() + timedelta(days=package.duration_days),
+                    'status': '0',
                 }
                 await UserMembershipDao.add_membership(query_db, membership_data)
 
-            # 初始化功能配额
-            await cls._init_user_quotas(query_db, user_id, package.features)
+            # 配额已经在会员表中管理，不需要单独初始化
+            # await cls._init_user_quotas(query_db, user_id, package.features)
 
             # 只有明确要求才自动提交
             if auto_commit:
@@ -310,17 +315,27 @@ class MemberService:
     async def check_quota(cls, query_db: AsyncSession, user_id: int, feature_type: str, amount: int) -> bool:
         """
         检查用户配额是否充足（简单版本，向后兼容）
+        
+        现在直接检查会员表中的配额，不再依赖单独的配额表
 
         :param query_db: 数据库会话
         :param user_id: 用户ID
-        :param feature_type: 功能类型
+        :param feature_type: 功能类型（暂时忽略，统一检查使用次数）
         :param amount: 需要的配额数量
         :return: 是否充足
         """
-        quota = await cls.get_user_quota(query_db, user_id, feature_type)
-        if not quota:
+        # 获取用户会员信息
+        membership = await cls.get_user_membership(query_db, user_id)
+        if not membership:
             return False
-        return quota.remaining_quota >= amount
+        
+        # 检查会员是否过期
+        if membership.end_date and membership.end_date < datetime.now():
+            return False
+        
+        # 检查使用次数配额
+        remaining_usage = membership.total_usage_quota - (membership.used_usage_quota or 0)
+        return remaining_usage >= amount
 
     @classmethod
     async def check_quota_detailed(
@@ -487,44 +502,55 @@ class MemberService:
     ) -> CrudResponseModel:
         """
         扣减用户配额（不自动提交事务，由调用方控制）
+        
+        现在直接从会员表扣减配额，不再使用单独的配额表
 
         :param query_db: 数据库会话
         :param deduct_data: 扣减数据
         :param auto_commit: 是否自动提交（默认False，由调用方控制事务）
         :return: 操作结果
         """
-        # 详细检查配额
-        check_result = await cls.check_quota_detailed(
-            query_db,
-            deduct_data.user_id,
-            deduct_data.feature_type,
-            deduct_data.amount
-        )
+        # 获取用户会员信息
+        membership = await cls.get_user_membership(query_db, deduct_data.user_id)
         
-        # 配额不足，抛出详细错误信息
-        if not check_result.is_sufficient:
+        if not membership:
             raise ServiceException(
-                message=check_result.error_message,
-                code=check_result.error_code
+                message='您还未开通会员，请先购买会员套餐',
+                code='MEMBERSHIP_NOT_FOUND'
+            )
+        
+        # 检查会员是否过期
+        if membership.end_date and membership.end_date < datetime.now():
+            raise ServiceException(
+                message=f'您的会员已于 {membership.end_date.strftime("%Y-%m-%d")} 过期，请续费',
+                code='MEMBERSHIP_EXPIRED'
+            )
+        
+        # 检查使用次数配额
+        remaining_usage = membership.total_usage_quota - (membership.used_usage_quota or 0)
+        if remaining_usage < deduct_data.amount:
+            raise ServiceException(
+                message=f'使用次数不足，当前剩余 {remaining_usage} 次，需要 {deduct_data.amount} 次',
+                code='QUOTA_INSUFFICIENT'
             )
 
         try:
-            # 扣减配额
-            await UserFeatureQuotaDao.deduct_quota(
+            # 扣减会员表中的使用次数
+            await UserMembershipDao.update_quota_usage(
                 query_db,
-                deduct_data.user_id,
-                deduct_data.feature_type,
-                deduct_data.amount
+                membership.membership_id,
+                word_count=0,  # 暂时不扣减字数
+                usage_count=deduct_data.amount
             )
 
-            # 记录使用记录
+            # 记录使用记录（使用正确的字段名）
             record_data = {
                 'user_id': deduct_data.user_id,
-                'feature_type': deduct_data.feature_type,
-                'quota_amount': deduct_data.amount,
-                'business_id': deduct_data.business_id,
-                'business_type': deduct_data.business_type,
-                'use_time': datetime.now(),
+                'thesis_id': deduct_data.business_id if deduct_data.business_type in ['thesis_create', 'outline_generate', 'chapter_generate', 'chapter_batch_generate'] else None,
+                'word_count': 0,  # 暂时不记录字数
+                'usage_count': deduct_data.amount,
+                'operation_type': 'generate',  # 生成操作
+                'remark': f'{deduct_data.feature_type} - {deduct_data.business_type}'
             }
             await QuotaRecordDao.add_record(query_db, record_data)
 
@@ -536,7 +562,7 @@ class MemberService:
                 is_success=True,
                 message='配额扣减成功',
                 data={
-                    'remaining_quota': check_result.remaining_quota - deduct_data.amount
+                    'remaining_quota': remaining_usage - deduct_data.amount
                 }
             )
         except ServiceException:

@@ -121,7 +121,7 @@ class ThesisDao:
         :return:
         """
         await db.execute(
-            update(AiWriteThesis).where(AiWriteThesis.thesis_id == thesis_id).values(total_word_count=word_count)
+            update(AiWriteThesis).where(AiWriteThesis.thesis_id == thesis_id).values(total_words=word_count)
         )
 
     @classmethod

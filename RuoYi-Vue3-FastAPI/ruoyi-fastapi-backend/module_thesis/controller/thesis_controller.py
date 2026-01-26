@@ -107,7 +107,7 @@ async def create_thesis(
         current_user.user.user_id
     )
     logger.info(result.message)
-    return ResponseUtil.success(msg=result.message, data=result.data)
+    return ResponseUtil.success(msg=result.message, data=result.result)
 
 
 @thesis_controller.put(
@@ -218,7 +218,7 @@ async def generate_outline(
         current_user.user.user_id
     )
     logger.info(result.message)
-    return ResponseUtil.success(msg=result.message, data=result.data)
+    return ResponseUtil.success(msg=result.message, data=result.result)
 
 
 # ==================== 章节管理 ====================

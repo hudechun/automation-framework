@@ -48,11 +48,18 @@ class FormatTemplateDao:
         :return: 模板列表
         """
         query_object = query_object or {}
+        # 处理字段名映射：VO中使用school，数据库中使用school_name
+        school_name = query_object.get('school_name') or query_object.get('school')
+        template_name = query_object.get('template_name')
+        
         query = (
             select(AiWriteFormatTemplate)
             .where(
-                AiWriteFormatTemplate.school_name.like(f"%{query_object.get('school_name')}%")
-                if query_object.get('school_name')
+                AiWriteFormatTemplate.template_name.like(f"%{template_name}%")
+                if template_name
+                else True,
+                AiWriteFormatTemplate.school_name.like(f"%{school_name}%")
+                if school_name
                 else True,
                 AiWriteFormatTemplate.major.like(f"%{query_object.get('major')}%")
                 if query_object.get('major')
@@ -61,9 +68,9 @@ class FormatTemplateDao:
                 if query_object.get('degree_level')
                 else True,
                 AiWriteFormatTemplate.is_official == query_object.get('is_official')
-                if query_object.get('is_official')
+                if query_object.get('is_official') is not None
                 else True,
-                AiWriteFormatTemplate.status == query_object.get('status') if query_object.get('status') else True,
+                AiWriteFormatTemplate.status == query_object.get('status') if query_object.get('status') is not None else True,
                 AiWriteFormatTemplate.del_flag == '0',
             )
             .order_by(AiWriteFormatTemplate.is_official.desc(), AiWriteFormatTemplate.usage_count.desc())

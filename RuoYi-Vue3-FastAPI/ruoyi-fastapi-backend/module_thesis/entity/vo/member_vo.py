@@ -22,12 +22,16 @@ class MemberPackageModel(BaseModel):
 
     package_id: Optional[int] = Field(default=None, description='套餐ID')
     package_name: Optional[str] = Field(default=None, description='套餐名称')
+    package_desc: Optional[str] = Field(default=None, description='套餐描述')
     package_type: Optional[str] = Field(default=None, description='套餐类型')
     price: Optional[Decimal] = Field(default=None, description='套餐价格')
     original_price: Optional[Decimal] = Field(default=None, description='原价')
     duration_days: Optional[int] = Field(default=None, description='有效期（天）')
-    features: Optional[dict[str, Any]] = Field(default=None, description='功能配额JSON')
+    word_quota: Optional[int] = Field(default=None, description='字数配额')
+    usage_quota: Optional[int] = Field(default=None, description='使用次数配额')
+    features: Optional[dict[str, Any]] = Field(default=None, description='功能权限JSON')
     description: Optional[str] = Field(default=None, description='套餐描述')
+    badge: Optional[str] = Field(default=None, description='徽章文字')
     sort_order: Optional[int] = Field(default=None, description='显示顺序')
     is_recommended: Optional[str] = Field(default=None, description='是否推荐')
     status: Optional[Literal['0', '1']] = Field(default=None, description='状态（0正常 1停用）')
@@ -98,14 +102,24 @@ class UserMembershipModel(BaseModel):
     user_id: Optional[int] = Field(default=None, description='用户ID')
     package_id: Optional[int] = Field(default=None, description='套餐ID')
     package_name: Optional[str] = Field(default=None, description='套餐名称')
-    start_time: Optional[datetime] = Field(default=None, description='开始时间')
-    end_time: Optional[datetime] = Field(default=None, description='结束时间')
-    status: Optional[Literal['active', 'expired', 'cancelled']] = Field(default=None, description='会员状态')
+    total_word_quota: Optional[int] = Field(default=None, description='总字数配额')
+    used_word_quota: Optional[int] = Field(default=None, description='已使用字数')
+    total_usage_quota: Optional[int] = Field(default=None, description='总使用次数')
+    used_usage_quota: Optional[int] = Field(default=None, description='已使用次数')
+    start_date: Optional[datetime] = Field(default=None, description='开始时间')
+    end_date: Optional[datetime] = Field(default=None, description='结束时间')
+    status: Optional[str] = Field(default=None, description='会员状态（0正常 1停用 2过期）')
     create_by: Optional[str] = Field(default=None, description='创建者')
     create_time: Optional[datetime] = Field(default=None, description='创建时间')
     update_by: Optional[str] = Field(default=None, description='更新者')
     update_time: Optional[datetime] = Field(default=None, description='更新时间')
     remark: Optional[str] = Field(default=None, description='备注')
+    
+    # 兼容属性（用于向后兼容）
+    @property
+    def expire_time(self) -> Optional[datetime]:
+        """兼容旧代码中的expire_time字段"""
+        return self.end_date
 
 
 class UserMembershipQueryModel(BaseModel):
@@ -182,7 +196,7 @@ class DeductQuotaModel(BaseModel):
     扣减配额请求模型
     """
 
-    model_config = ConfigDict(alias_generator=to_camel)
+    model_config = ConfigDict(alias_generator=to_camel, populate_by_name=True)
 
     user_id: int = Field(description='用户ID')
     feature_type: str = Field(description='功能类型')

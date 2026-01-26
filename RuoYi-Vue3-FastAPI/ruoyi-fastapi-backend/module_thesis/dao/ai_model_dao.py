@@ -7,7 +7,8 @@ from sqlalchemy import select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from common.vo import PageModel
-from module_thesis.entity.do.ai_model_do import AiWriteAiModelConfig
+# 使用 module_admin 中的 AiModelConfig，避免重复定义
+from module_admin.entity.do.ai_model_do import AiModelConfig as AiWriteAiModelConfig
 from utils.page_util import PageUtil
 
 
@@ -58,17 +59,19 @@ class AiModelConfigDao:
         return config_info
 
     @classmethod
-    async def get_default_config(cls, db: AsyncSession) -> Union[AiWriteAiModelConfig, None]:
+    async def get_default_config(cls, db: AsyncSession, model_type: str = 'language') -> Union[AiWriteAiModelConfig, None]:
         """
         获取默认模型配置
 
         :param db: orm对象
+        :param model_type: 模型类型（language/vision）
         :return: 默认模型配置信息对象
         """
         config_info = (
             await db.execute(
                 select(AiWriteAiModelConfig)
                 .where(
+                    AiWriteAiModelConfig.model_type == model_type,
                     AiWriteAiModelConfig.is_default == '1',
                     AiWriteAiModelConfig.is_enabled == '1',
                     AiWriteAiModelConfig.status == '0',
@@ -171,8 +174,15 @@ class AiModelConfigDao:
         :param config_data: 模型配置数据
         :return:
         """
+        # 确保只使用 DO 模型中存在的字段，避免 "Unconsumed column names" 错误
+        do_model_fields = {field.name for field in AiWriteAiModelConfig.__table__.columns}
+        filtered_config_data = {k: v for k, v in config_data.items() if k in do_model_fields}
+        
+        if not filtered_config_data:
+            return  # 没有需要更新的字段
+        
         await db.execute(
-            update(AiWriteAiModelConfig).where(AiWriteAiModelConfig.config_id == config_id).values(**config_data)
+            update(AiWriteAiModelConfig).where(AiWriteAiModelConfig.config_id == config_id).values(**filtered_config_data)
         )
 
     @classmethod

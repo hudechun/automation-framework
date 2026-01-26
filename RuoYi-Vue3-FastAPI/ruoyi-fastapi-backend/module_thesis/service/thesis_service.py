@@ -87,11 +87,18 @@ class ThesisService:
 
             # 创建论文
             thesis_dict = thesis_data.model_dump(exclude_none=True)
+            # 移除数据库中不存在的字段（如subject，如果数据库中没有该字段）
+            # subject字段在VO中用于验证，但数据库中没有对应字段，所以需要排除
+            thesis_dict.pop('subject', None)  # 如果数据库中没有subject字段，则移除
             thesis_dict['user_id'] = user_id
             thesis_dict['status'] = 'draft'
-            thesis_dict['total_word_count'] = 0
+            thesis_dict['total_words'] = 0
             
             new_thesis = await ThesisDao.add_thesis(query_db, thesis_dict)
+            
+            # 在 flush 后立即提取 thesis_id（此时对象还在 session 中）
+            await query_db.flush()
+            thesis_id = new_thesis.thesis_id
             
             # 扣减配额（带正确的业务ID，不自动提交）
             deduct_data = DeductQuotaModel(
@@ -99,16 +106,17 @@ class ThesisService:
                 feature_type='thesis_generation',
                 amount=1,
                 business_type='thesis_create',
-                business_id=new_thesis.thesis_id
+                business_id=thesis_id
             )
             await MemberService.deduct_quota(query_db, deduct_data, auto_commit=False)
             
             # 统一提交事务
             await query_db.commit()
+            
             return CrudResponseModel(
                 is_success=True,
                 message='论文创建成功',
-                data={'thesis_id': new_thesis.thesis_id}
+                result={'thesis_id': thesis_id}
             )
         except ServiceException as e:
             await query_db.rollback()
@@ -198,12 +206,32 @@ class ThesisService:
         :return: 操作结果
         """
         # 检查论文是否存在
-        await cls.get_thesis_detail(query_db, outline_data.thesis_id)
+        thesis = await cls.get_thesis_detail(query_db, outline_data.thesis_id)
 
         try:
             # 先检查配额是否充足（不扣减）
             if not await MemberService.check_quota(query_db, user_id, 'outline_generation', 1):
                 raise ServiceException(message='大纲生成配额不足')
+
+            # 调用AI生成大纲
+            from module_thesis.service.ai_generation_service import AiGenerationService
+            
+            # 从数据库对象获取论文信息
+            thesis_dict = await ThesisDao.get_thesis_by_id(query_db, outline_data.thesis_id)
+            
+            thesis_info = {
+                'title': thesis_dict.title if thesis_dict else thesis.title,
+                'major': getattr(thesis_dict, 'major', '') if thesis_dict else '',
+                'degree_level': getattr(thesis_dict, 'degree_level', '') if thesis_dict else '',
+                'research_direction': getattr(thesis_dict, 'research_direction', '') if thesis_dict else '',
+                'keywords': getattr(thesis_dict, 'keywords', '') if thesis_dict else ''
+            }
+            
+            ai_outline = await AiGenerationService.generate_outline(query_db, thesis_info)
+            
+            # 将AI生成的大纲转换为JSON字符串存储
+            import json
+            outline_content = json.dumps(ai_outline, ensure_ascii=False)
 
             # 检查是否已有大纲
             existing_outline = await ThesisOutlineDao.get_outline_by_thesis_id(
@@ -212,15 +240,21 @@ class ThesisService:
 
             if existing_outline:
                 # 更新现有大纲
-                update_data = outline_data.model_dump(exclude_unset=True)
-                update_data['outline_id'] = existing_outline.outline_id
-                update_data['update_time'] = datetime.now()
+                update_data = {
+                    'outline_id': existing_outline.outline_id,
+                    'outline_data': outline_content,
+                    'update_time': datetime.now()
+                }
                 await ThesisOutlineDao.update_outline(query_db, update_data)
                 outline_id = existing_outline.outline_id
             else:
                 # 创建新大纲
-                outline_dict = outline_data.model_dump(exclude_none=True)
+                outline_dict = {
+                    'thesis_id': outline_data.thesis_id,
+                    'outline_data': outline_content
+                }
                 new_outline = await ThesisOutlineDao.add_outline(query_db, outline_dict)
+                await query_db.flush()
                 outline_id = new_outline.outline_id
 
             # 扣减配额（生成大纲消耗1次大纲生成配额，不自动提交）
@@ -238,7 +272,7 @@ class ThesisService:
             return CrudResponseModel(
                 is_success=True,
                 message='大纲生成成功',
-                data={'outline_id': outline_id}
+                result={'outline_id': outline_id, 'outline': ai_outline}
             )
         except ServiceException as e:
             await query_db.rollback()
@@ -283,16 +317,56 @@ class ThesisService:
         :return: 操作结果
         """
         # 检查论文是否存在
-        await cls.get_thesis_detail(query_db, chapter_data.thesis_id)
+        thesis = await cls.get_thesis_detail(query_db, chapter_data.thesis_id)
 
         try:
             # 先检查配额是否充足（不扣减）
             if not await MemberService.check_quota(query_db, user_id, 'chapter_generation', 1):
                 raise ServiceException(message='章节生成配额不足')
 
+            # 获取大纲上下文（如果有）
+            outline = await ThesisOutlineDao.get_outline_by_thesis_id(query_db, chapter_data.thesis_id)
+            outline_context = outline.outline_data if outline else None
+
+            # 调用AI生成章节内容
+            from module_thesis.service.ai_generation_service import AiGenerationService
+            
+            # 从数据库对象获取论文信息
+            thesis_dict = await ThesisDao.get_thesis_by_id(query_db, chapter_data.thesis_id)
+            
+            thesis_info = {
+                'title': thesis_dict.title if thesis_dict else thesis.title,
+                'major': getattr(thesis_dict, 'major', '') if thesis_dict else '',
+                'degree_level': getattr(thesis_dict, 'degree_level', '') if thesis_dict else '',
+                'keywords': getattr(thesis_dict, 'keywords', '') if thesis_dict else ''
+            }
+            
+            chapter_info = {
+                'chapter_number': chapter_data.chapter_number,
+                'chapter_title': chapter_data.chapter_title,
+                'sections': []  # 可以从chapter_data中提取小节信息
+            }
+            
+            ai_content = await AiGenerationService.generate_chapter(
+                query_db, thesis_info, chapter_info, outline_context
+            )
+            
+            # 计算字数
+            word_count = len(ai_content.replace(' ', '').replace('\n', ''))
+
             # 创建章节
-            chapter_dict = chapter_data.model_dump(exclude_none=True)
+            chapter_dict = {
+                'thesis_id': chapter_data.thesis_id,
+                'title': chapter_data.chapter_title,
+                'level': 1,  # 默认一级章节
+                'order_num': chapter_data.chapter_number if isinstance(chapter_data.chapter_number, int) else 1,
+                'content': ai_content,
+                'word_count': word_count,
+                'status': 'completed'
+            }
             new_chapter = await ThesisChapterDao.add_chapter(query_db, chapter_dict)
+            await query_db.flush()
+            chapter_id = new_chapter.chapter_id
 
             # 更新论文总字数
             total_words = await ThesisChapterDao.count_thesis_words(query_db, chapter_data.thesis_id)
@@ -313,7 +387,7 @@ class ThesisService:
             return CrudResponseModel(
                 is_success=True,
                 message='章节生成成功',
-                data={'chapter_id': new_chapter.chapter_id}
+                result={'chapter_id': chapter_id, 'content': ai_content, 'word_count': word_count}
             )
         except ServiceException as e:
             await query_db.rollback()
@@ -332,6 +406,8 @@ class ThesisService:
     ) -> CrudResponseModel:
         """
         批量生成章节（需要扣减配额）
+        
+        注意：此方法会实际调用AI生成每个章节的内容
 
         :param query_db: 数据库会话
         :param thesis_id: 论文ID
@@ -340,7 +416,7 @@ class ThesisService:
         :return: 操作结果
         """
         # 检查论文是否存在
-        await cls.get_thesis_detail(query_db, thesis_id)
+        thesis = await cls.get_thesis_detail(query_db, thesis_id)
 
         chapter_count = len(chapters_data)
         if chapter_count == 0:
@@ -351,9 +427,54 @@ class ThesisService:
             if not await MemberService.check_quota(query_db, user_id, 'chapter_generation', chapter_count):
                 raise ServiceException(message='章节生成配额不足')
 
+            # 获取大纲上下文（如果有）
+            outline = await ThesisOutlineDao.get_outline_by_thesis_id(query_db, thesis_id)
+            outline_context = outline.outline_data if outline else None
+
+            # 从数据库对象获取论文信息
+            thesis_dict = await ThesisDao.get_thesis_by_id(query_db, thesis_id)
+            
+            thesis_info = {
+                'title': thesis_dict.title if thesis_dict else thesis.title,
+                'major': getattr(thesis_dict, 'major', '') if thesis_dict else '',
+                'degree_level': getattr(thesis_dict, 'degree_level', '') if thesis_dict else '',
+                'keywords': getattr(thesis_dict, 'keywords', '') if thesis_dict else ''
+            }
+
+            # 调用AI生成服务
+            from module_thesis.service.ai_generation_service import AiGenerationService
+
+            # 批量生成章节内容
+            generated_chapters = []
+            for chapter_data in chapters_data:
+                chapter_info = {
+                    'chapter_number': chapter_data.chapter_number,
+                    'chapter_title': chapter_data.chapter_title,
+                    'sections': []  # 可以从chapter_data中提取小节信息
+                }
+                
+                # 调用AI生成章节内容
+                ai_content = await AiGenerationService.generate_chapter(
+                    query_db, thesis_info, chapter_info, outline_context
+                )
+                
+                # 计算字数
+                word_count = len(ai_content.replace(' ', '').replace('\n', ''))
+
+                # 准备章节数据
+                chapter_dict = {
+                    'thesis_id': thesis_id,
+                    'title': chapter_data.chapter_title,
+                    'level': 1,  # 默认一级章节
+                    'order_num': chapter_data.chapter_number if isinstance(chapter_data.chapter_number, int) else len(generated_chapters) + 1,
+                    'content': ai_content,
+                    'word_count': word_count,
+                    'status': 'completed'
+                }
+                generated_chapters.append(chapter_dict)
+
             # 批量创建章节
-            chapters_dict = [chapter.model_dump(exclude_none=True) for chapter in chapters_data]
-            await ThesisChapterDao.batch_add_chapters(query_db, chapters_dict)
+            await ThesisChapterDao.batch_add_chapters(query_db, generated_chapters)
 
             # 更新论文总字数
             total_words = await ThesisChapterDao.count_thesis_words(query_db, thesis_id)
@@ -373,7 +494,8 @@ class ThesisService:
             await query_db.commit()
             return CrudResponseModel(
                 is_success=True,
-                message=f'成功生成{chapter_count}个章节'
+                message=f'成功生成{chapter_count}个章节',
+                result={'generated_count': chapter_count, 'total_words': total_words}
             )
         except ServiceException as e:
             await query_db.rollback()
@@ -487,7 +609,7 @@ class ThesisService:
             return CrudResponseModel(
                 is_success=True,
                 message='版本创建成功',
-                data={'version_id': new_version.version_id}
+                result={'version_id': new_version.version_id}
             )
         except Exception as e:
             await query_db.rollback()

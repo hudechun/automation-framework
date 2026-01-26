@@ -51,14 +51,15 @@ class AiModelService:
         return AiModelConfigModel(**CamelCaseUtil.transform_result(config))
 
     @classmethod
-    async def get_default_config(cls, query_db: AsyncSession) -> Union[AiModelConfigModel, None]:
+    async def get_default_config(cls, query_db: AsyncSession, model_type: str = 'language') -> Union[AiModelConfigModel, None]:
         """
         获取默认AI模型配置
 
         :param query_db: 数据库会话
+        :param model_type: 模型类型（language/vision）
         :return: 默认配置
         """
-        config = await AiModelConfigDao.get_default_config(query_db)
+        config = await AiModelConfigDao.get_default_config(query_db, model_type)
         if config:
             return AiModelConfigModel(**CamelCaseUtil.transform_result(config))
         return None
@@ -112,10 +113,24 @@ class AiModelService:
         await cls.get_config_detail(query_db, config_data.config_id)
 
         try:
-            update_data = config_data.model_dump(exclude_unset=True, exclude={'config_id'})
-            await AiModelConfigDao.update_config(query_db, config_data.config_id, update_data)
-            await query_db.commit()
-            return CrudResponseModel(is_success=True, message='更新成功')
+            # 使用 by_alias=False 获取原始字段名（snake_case），而不是 camelCase
+            # 因为 DO 模型使用 snake_case 字段名
+            update_data = config_data.model_dump(exclude_unset=True, exclude={'config_id'}, by_alias=False)
+            
+            # 获取DO模型的所有字段名，过滤掉不存在的字段
+            # 使用 module_admin 的 DO 模型，与 DAO 层保持一致，避免重复定义表
+            from module_admin.entity.do.ai_model_do import AiModelConfig
+            do_model_fields = {field.name for field in AiModelConfig.__table__.columns}
+            
+            # 只保留 DO 模型中存在的字段
+            filtered_data = {k: v for k, v in update_data.items() if k in do_model_fields}
+            
+            if filtered_data:
+                await AiModelConfigDao.update_config(query_db, config_data.config_id, filtered_data)
+                await query_db.commit()
+                return CrudResponseModel(is_success=True, message='更新成功')
+            else:
+                return CrudResponseModel(is_success=True, message='没有需要更新的字段')
         except Exception as e:
             await query_db.rollback()
             raise ServiceException(message=f'更新失败: {str(e)}')
@@ -216,47 +231,25 @@ class AiModelService:
     async def test_config(cls, query_db: AsyncSession, config_id: int, test_prompt: str = '你好') -> AiModelTestResponseModel:
         """
         测试AI模型配置连接
+        
+        注意：此方法已废弃，请使用 module_admin.service.ai_model_service.AiModelService.test_config
 
         :param query_db: 数据库会话
         :param config_id: 配置ID
         :param test_prompt: 测试提示词
         :return: 测试结果
         """
-        # 获取配置
-        config = await cls.get_config_detail(query_db, config_id)
-
-        # 检查API Key是否配置
-        if not config.api_key:
-            return AiModelTestResponseModel(
-                success=False, error_message='API Key未配置，请先配置API Key'
-            )
-
-        # 记录开始时间
-        start_time = time.time()
-
         try:
-            # TODO: 这里应该调用实际的AI模型API进行测试
-            # 目前返回模拟结果
-            # 实际实现时需要根据不同的model_code调用不同的API
+            # 使用系统级AI模型服务进行测试
+            from module_admin.service.ai_model_service import AiModelService as SystemAiModelService
             
-            # 模拟API调用延迟
-            import asyncio
-            await asyncio.sleep(0.5)
+            return await SystemAiModelService.test_config(query_db, config_id, test_prompt)
             
-            # 计算响应时间
-            response_time = time.time() - start_time
-            
-            return AiModelTestResponseModel(
-                success=True,
-                response_text=f'测试成功！模型 {config.model_name} ({config.model_version}) 响应正常。',
-                response_time=round(response_time, 2),
-            )
         except Exception as e:
-            response_time = time.time() - start_time
             return AiModelTestResponseModel(
                 success=False,
-                error_message=f'连接测试失败: {str(e)}',
-                response_time=round(response_time, 2),
+                error_message=f'测试失败: {str(e)}',
+                response_time=0
             )
 
     @classmethod

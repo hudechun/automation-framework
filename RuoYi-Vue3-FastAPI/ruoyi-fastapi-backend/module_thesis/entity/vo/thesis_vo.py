@@ -17,7 +17,7 @@ class ThesisModel(BaseModel):
     论文信息模型
     """
 
-    model_config = ConfigDict(alias_generator=to_camel, from_attributes=True)
+    model_config = ConfigDict(alias_generator=to_camel, from_attributes=True, populate_by_name=True)
 
     thesis_id: Optional[int] = Field(default=None, description='论文ID')
     user_id: Optional[int] = Field(default=None, description='用户ID')
@@ -147,17 +147,25 @@ class ThesisOutlineModel(BaseModel):
     论文大纲信息模型
     """
 
-    model_config = ConfigDict(alias_generator=to_camel, from_attributes=True)
+    model_config = ConfigDict(alias_generator=to_camel, from_attributes=True, populate_by_name=True)
 
     outline_id: Optional[int] = Field(default=None, description='大纲ID')
     thesis_id: Optional[int] = Field(default=None, description='论文ID')
-    outline_structure: Optional[dict[str, Any]] = Field(default=None, description='大纲结构JSON')
+    outline_structure: Optional[dict[str, Any]] = Field(default=None, alias='outline_data', description='大纲结构JSON')
+    outline_data: Optional[dict[str, Any]] = Field(default=None, description='大纲数据（数据库字段）')
     version: Optional[int] = Field(default=None, description='版本号')
     create_by: Optional[str] = Field(default=None, description='创建者')
     create_time: Optional[datetime] = Field(default=None, description='创建时间')
     update_by: Optional[str] = Field(default=None, description='更新者')
     update_time: Optional[datetime] = Field(default=None, description='更新时间')
     remark: Optional[str] = Field(default=None, description='备注')
+    
+    def model_post_init(self, __context):
+        """后处理：确保outline_structure和outline_data同步"""
+        if self.outline_data and not self.outline_structure:
+            self.outline_structure = self.outline_data
+        elif self.outline_structure and not self.outline_data:
+            self.outline_data = self.outline_structure
 
 
 class GenerateOutlineModel(BaseModel):
@@ -209,7 +217,7 @@ class ThesisChapterModel(BaseModel):
     论文章节信息模型
     """
 
-    model_config = ConfigDict(alias_generator=to_camel, from_attributes=True)
+    model_config = ConfigDict(alias_generator=to_camel, from_attributes=True, populate_by_name=True)
 
     chapter_id: Optional[int] = Field(default=None, description='章节ID')
     thesis_id: Optional[int] = Field(default=None, description='论文ID')
