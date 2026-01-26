@@ -9,7 +9,7 @@ from typing import Any, Callable, Literal, Optional, TypeVar
 import httpx
 from async_lru import alru_cache
 from fastapi import Request
-from fastapi.responses import JSONResponse, ORJSONResponse, UJSONResponse
+from fastapi.responses import JSONResponse, ORJSONResponse, UJSONResponse, StreamingResponse
 from sqlalchemy.ext.asyncio import AsyncSession
 from starlette.status import HTTP_200_OK
 from typing_extensions import ParamSpec
@@ -103,7 +103,41 @@ class Log:
             request_from_swagger, request_from_redoc = self._is_request_from_swagger_or_redoc(request)
             # 根据响应结果的类型使用不同的方法获取响应结果参数
             result_dict = self._get_result_dict(result, request_from_swagger, request_from_redoc)
-            json_result = json.dumps(result_dict, ensure_ascii=False)
+            # 安全地序列化 JSON，处理可能的编码问题
+            try:
+                json_result = json.dumps(result_dict, ensure_ascii=False)
+            except (UnicodeEncodeError, TypeError) as e:
+                # 如果序列化失败，尝试清理数据中的问题字符
+                logger.warning(f'JSON序列化失败，尝试清理数据: {str(e)}')
+                # 递归清理字典中的非可序列化对象
+                cleaned_dict = self._clean_dict_for_json(result_dict)
+                json_result = json.dumps(cleaned_dict, ensure_ascii=False, default=str)
+            
+            # 限制 json_result 长度，避免超过数据库字段限制（varchar(2000)）
+            # 如果数据太长，只保留关键信息和摘要
+            max_json_length = 1900  # 留一些余量
+            if len(json_result) > max_json_length:
+                # 尝试截断 data 字段中的大内容
+                if isinstance(result_dict, dict) and 'data' in result_dict:
+                    data = result_dict.get('data')
+                    if isinstance(data, dict):
+                        # 如果 data 中有 outline 等大字段，只保留摘要
+                        if 'outline' in data:
+                            outline = data.get('outline')
+                            if isinstance(outline, dict):
+                                # 只保留大纲的标题和章节数量
+                                data['outline'] = {
+                                    'title': outline.get('title', ''),
+                                    'chapter_count': len(outline.get('chapters', [])) if isinstance(outline.get('chapters'), list) else 0,
+                                    '_truncated': True,
+                                    '_note': '大纲内容已截断，完整内容请查看论文大纲详情'
+                                }
+                        # 重新生成 JSON
+                        json_result = json.dumps(result_dict, ensure_ascii=False)
+                
+                # 如果还是太长，直接截断并添加提示
+                if len(json_result) > max_json_length:
+                    json_result = json_result[:max_json_length] + '..."[数据过长已截断]'
             # 根据响应结果获取响应状态及异常信息
             status, error_msg = self._get_status_and_error_msg(result_dict)
             # 根据日志类型向对应的日志表插入数据
@@ -325,6 +359,34 @@ class Log:
 
         return request_from_swagger, request_from_redoc
 
+    def _clean_dict_for_json(self, obj: Any) -> Any:
+        """
+        清理字典中的非可序列化对象，用于 JSON 序列化
+        
+        :param obj: 需要清理的对象
+        :return: 清理后的对象
+        """
+        if isinstance(obj, dict):
+            cleaned = {}
+            for key, value in obj.items():
+                try:
+                    # 递归清理值
+                    cleaned[key] = self._clean_dict_for_json(value)
+                except (TypeError, UnicodeEncodeError):
+                    # 如果无法清理，使用字符串表示
+                    cleaned[key] = str(value)[:100]  # 限制长度
+            return cleaned
+        elif isinstance(obj, (list, tuple)):
+            return [self._clean_dict_for_json(item) for item in obj]
+        elif isinstance(obj, (str, int, float, bool, type(None))):
+            return obj
+        else:
+            # 对于其他类型，尝试转换为字符串
+            try:
+                return str(obj)[:200]  # 限制长度
+            except (UnicodeEncodeError, TypeError):
+                return '[无法序列化的对象]'
+
     def _get_result_dict(self, result: Any, request_from_swagger: bool, request_from_redoc: bool) -> dict:
         """
         获取操作结果字典
@@ -334,14 +396,55 @@ class Log:
         :param request_from_redoc: 是否来自redoc请求
         :return: 操作结果字典
         """
-        if isinstance(result, (JSONResponse, ORJSONResponse, UJSONResponse)):
-            result_dict = json.loads(str(result.body, 'utf-8'))
+        # 处理流式响应（如文件下载），不尝试解析响应体
+        if isinstance(result, StreamingResponse):
+            # 安全地处理 headers，避免编码问题
+            headers_dict = {}
+            if hasattr(result, 'headers'):
+                try:
+                    # 只提取安全的 header 键值对，避免中文字符编码问题
+                    for key, value in result.headers.items():
+                        # 只保留 ASCII 安全的 header，或者转换为字符串
+                        try:
+                            # 尝试将值转换为字符串，如果包含非 ASCII 字符则跳过
+                            str_value = str(value)
+                            if str_value.isascii():
+                                headers_dict[key] = str_value
+                            else:
+                                # 对于包含非 ASCII 字符的 header，只记录键名
+                                headers_dict[key] = '[包含非ASCII字符]'
+                        except (UnicodeEncodeError, UnicodeDecodeError):
+                            headers_dict[key] = '[编码错误]'
+                except Exception:
+                    headers_dict = {'note': '无法解析响应头'}
+            
+            result_dict = {
+                'code': HTTP_200_OK,
+                'message': '文件下载成功',
+                'data': {
+                    'type': 'streaming',
+                    'media_type': result.media_type if hasattr(result, 'media_type') else 'application/octet-stream',
+                    'headers': headers_dict
+                }
+            }
+        elif isinstance(result, (JSONResponse, ORJSONResponse, UJSONResponse)):
+            try:
+                # 尝试解码响应体，如果失败则使用默认值
+                if hasattr(result, 'body') and result.body:
+                    result_dict = json.loads(str(result.body, 'utf-8'))
+                else:
+                    result_dict = {'code': HTTP_200_OK, 'message': '获取成功'}
+            except (UnicodeDecodeError, json.JSONDecodeError, AttributeError):
+                # 如果解码失败（可能是二进制数据），使用默认值
+                result_dict = {'code': HTTP_200_OK, 'message': '获取成功'}
         elif request_from_swagger or request_from_redoc:
             result_dict = {}
-        elif result.status_code == HTTP_200_OK:
+        elif hasattr(result, 'status_code') and result.status_code == HTTP_200_OK:
             result_dict = {'code': result.status_code, 'message': '获取成功'}
-        else:
+        elif hasattr(result, 'status_code'):
             result_dict = {'code': result.status_code, 'message': '获取失败'}
+        else:
+            result_dict = {'code': HTTP_200_OK, 'message': '操作成功'}
 
         return result_dict
 

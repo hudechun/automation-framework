@@ -27,6 +27,7 @@ from module_thesis.entity.vo import (
     QuotaRecordPageQueryModel,
 )
 from utils.common_util import CamelCaseUtil
+from utils.log_util import logger
 
 
 @dataclass
@@ -327,14 +328,33 @@ class MemberService:
         # 获取用户会员信息
         membership = await cls.get_user_membership(query_db, user_id)
         if not membership:
+            logger.warning(f"用户 {user_id} 没有找到有效的会员记录")
             return False
         
         # 检查会员是否过期
         if membership.end_date and membership.end_date < datetime.now():
+            logger.warning(
+                f"用户 {user_id} 的会员已过期 - "
+                f"结束时间: {membership.end_date}, "
+                f"当前时间: {datetime.now()}"
+            )
             return False
         
         # 检查使用次数配额
-        remaining_usage = membership.total_usage_quota - (membership.used_usage_quota or 0)
+        total_quota = membership.total_usage_quota or 0
+        used_quota = membership.used_usage_quota or 0
+        remaining_usage = total_quota - used_quota
+        
+        logger.info(
+            f"检查用户 {user_id} 配额 - "
+            f"功能类型: {feature_type}, "
+            f"需要: {amount}, "
+            f"总配额: {total_quota}, "
+            f"已使用: {used_quota}, "
+            f"剩余: {remaining_usage}, "
+            f"是否充足: {remaining_usage >= amount}"
+        )
+        
         return remaining_usage >= amount
 
     @classmethod
@@ -347,10 +367,12 @@ class MemberService:
     ) -> QuotaCheckResult:
         """
         详细检查用户配额（返回详细的检查结果）
+        
+        现在直接检查会员表中的配额，与 check_quota 方法保持一致
 
         :param query_db: 数据库会话
         :param user_id: 用户ID
-        :param feature_type: 功能类型
+        :param feature_type: 功能类型（用于显示错误信息）
         :param amount: 需要的配额数量
         :return: 详细的检查结果
         """
@@ -368,31 +390,31 @@ class MemberService:
             )
         
         # 2. 检查会员是否过期
-        if membership.expire_time and membership.expire_time < datetime.now():
+        if membership.end_date and membership.end_date < datetime.now():
             return QuotaCheckResult(
                 is_sufficient=False,
                 remaining_quota=0,
                 required_quota=amount,
                 error_code='MEMBERSHIP_EXPIRED',
-                error_message=f'您的会员已于 {membership.expire_time.strftime("%Y-%m-%d")} 过期',
+                error_message=f'您的会员已于 {membership.end_date.strftime("%Y-%m-%d")} 过期',
                 suggestion='请续费会员以继续使用'
             )
         
-        # 3. 检查配额记录
-        quota = await cls.get_user_quota(query_db, user_id, feature_type)
-        
-        if not quota:
+        # 3. 检查会员状态
+        if membership.status != '0':
             return QuotaCheckResult(
                 is_sufficient=False,
                 remaining_quota=0,
                 required_quota=amount,
-                error_code='QUOTA_NOT_INITIALIZED',
-                error_message='配额未初始化',
+                error_code='MEMBERSHIP_DISABLED',
+                error_message='您的会员已被停用',
                 suggestion='请联系客服处理'
             )
         
-        # 4. 检查配额是否充足
-        if quota.remaining_quota < amount:
+        # 4. 检查使用次数配额（从会员表获取）
+        remaining_usage = membership.total_usage_quota - (membership.used_usage_quota or 0)
+        
+        if remaining_usage < amount:
             # 获取功能类型的中文名称
             feature_names = {
                 'thesis_generation': '论文生成',
@@ -404,17 +426,17 @@ class MemberService:
             
             return QuotaCheckResult(
                 is_sufficient=False,
-                remaining_quota=quota.remaining_quota,
+                remaining_quota=remaining_usage,
                 required_quota=amount,
                 error_code='QUOTA_INSUFFICIENT',
-                error_message=f'{feature_name}配额不足，当前剩余 {quota.remaining_quota} 次，需要 {amount} 次',
+                error_message=f'{feature_name}配额不足，当前剩余 {remaining_usage} 次，需要 {amount} 次',
                 suggestion='请购买配额包或升级会员套餐'
             )
         
         # 5. 配额充足
         return QuotaCheckResult(
             is_sufficient=True,
-            remaining_quota=quota.remaining_quota,
+            remaining_quota=remaining_usage,
             required_quota=amount,
             error_code='SUCCESS',
             error_message='配额充足',
@@ -589,26 +611,65 @@ class MemberService:
     ) -> CrudResponseModel:
         """
         增加用户配额（不自动提交事务，由调用方控制）
+        
+        现在直接增加会员表中的配额，不再使用单独的配额表
 
         :param query_db: 数据库会话
         :param user_id: 用户ID
-        :param feature_type: 功能类型
+        :param feature_type: 功能类型（暂时忽略，统一增加使用次数配额）
         :param amount: 增加数量
         :param auto_commit: 是否自动提交（默认False，由调用方控制事务）
         :return: 操作结果
         """
         try:
-            await UserFeatureQuotaDao.add_quota_amount(query_db, user_id, feature_type, amount)
+            # 获取用户会员信息
+            membership = await cls.get_user_membership(query_db, user_id)
+            if not membership:
+                raise ServiceException(
+                    message='您还未开通会员，请先购买会员套餐',
+                    code='MEMBERSHIP_NOT_FOUND'
+                )
+            
+            # 增加会员表中的总配额
+            from sqlalchemy import update
+            from module_thesis.entity.do.member_do import AiWriteUserMembership
+            
+            await query_db.execute(
+                update(AiWriteUserMembership)
+                .where(AiWriteUserMembership.membership_id == membership.membership_id)
+                .values(
+                    total_usage_quota=AiWriteUserMembership.total_usage_quota + amount
+                )
+            )
+            
+            logger.info(
+                f"增加用户 {user_id} 配额 - "
+                f"增加数量: {amount}, "
+                f"原总配额: {membership.total_usage_quota}, "
+                f"新总配额: {membership.total_usage_quota + amount}"
+            )
             
             # 只有明确要求才自动提交
             if auto_commit:
                 await query_db.commit()
             
-            return CrudResponseModel(is_success=True, message='配额增加成功')
+            return CrudResponseModel(
+                is_success=True, 
+                message=f'配额增加成功，已增加 {amount} 次',
+                data={
+                    'old_total_quota': membership.total_usage_quota,
+                    'new_total_quota': membership.total_usage_quota + amount,
+                    'added_amount': amount
+                }
+            )
+        except ServiceException:
+            if auto_commit:
+                await query_db.rollback()
+            raise
         except Exception as e:
             if auto_commit:
                 await query_db.rollback()
-            raise e
+            raise ServiceException(message=f'配额增加失败: {str(e)}')
 
     @classmethod
     async def compensate_quota(

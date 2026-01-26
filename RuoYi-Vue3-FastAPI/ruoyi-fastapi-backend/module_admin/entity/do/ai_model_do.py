@@ -22,6 +22,7 @@ class AiModelConfig(Base):
     provider: Mapped[str] = mapped_column(String(50), nullable=False, comment='提供商（openai/anthropic/qwen等）')
     
     api_key: Mapped[Optional[str]] = mapped_column(String(500), comment='API密钥')
+    api_base_url: Mapped[Optional[str]] = mapped_column(String(200), comment='API基础URL')
     api_endpoint: Mapped[Optional[str]] = mapped_column(String(500), comment='API端点')
     model_version: Mapped[Optional[str]] = mapped_column(String(50), comment='模型版本')
     

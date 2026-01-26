@@ -39,7 +39,7 @@ class AiWriteThesis(Base):
     )
     thesis_type = Column(String(50), nullable=True, server_default="''", comment='论文类型（理论研究/实证研究/综述）')
     
-    status = Column(String(20), nullable=False, comment='状态（draft/generating/completed/exported）')
+    status = Column(String(20), nullable=False, comment='状态（draft/generating/completed/exported/formatted）')
     
     total_words = Column(Integer, nullable=True, server_default='0', comment='总字数')
     

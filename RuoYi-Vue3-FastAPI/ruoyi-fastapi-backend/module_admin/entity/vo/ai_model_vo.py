@@ -5,6 +5,7 @@ from datetime import datetime
 from typing import Any, Optional
 
 from pydantic import BaseModel, ConfigDict, Field
+from pydantic.alias_generators import to_camel
 
 
 class AiModelConfigModel(BaseModel):
@@ -19,6 +20,7 @@ class AiModelConfigModel(BaseModel):
     provider: str = Field(description='提供商（openai/anthropic/qwen等）')
     
     api_key: Optional[str] = Field(default=None, description='API密钥')
+    api_base_url: Optional[str] = Field(default=None, description='API基础URL')
     api_endpoint: Optional[str] = Field(default=None, description='API端点')
     model_version: Optional[str] = Field(default=None, description='模型版本')
     
@@ -56,12 +58,12 @@ class AiModelConfigPageQueryModel(BaseModel):
 class AiModelTestResponseModel(BaseModel):
     """AI模型测试响应模型"""
 
-    model_config = ConfigDict(from_attributes=True)
+    model_config = ConfigDict(from_attributes=True, alias_generator=to_camel)
 
-    success: bool = Field(description='是否成功')
+    success: bool = Field(default=False, description='是否成功')
     response_text: Optional[str] = Field(default=None, description='响应文本')
     error_message: Optional[str] = Field(default=None, description='错误信息')
-    response_time: float = Field(description='响应时间（秒）')
+    response_time: float = Field(default=0.0, description='响应时间（秒）')
 
 
 class PresetModelModel(BaseModel):

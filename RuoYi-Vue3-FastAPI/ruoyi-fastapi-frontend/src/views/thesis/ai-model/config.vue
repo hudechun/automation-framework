@@ -336,10 +336,40 @@ const handleTest = async (row) => {
   try {
     const res = await testAiModel(row.configId)
     loading.close()
-    ElMessage.success(res.msg || '连接测试成功')
+    
+    // 检查响应数据
+    // res 是 request 拦截器返回的 res.data，结构为 {code, msg, data, success, time}
+    // 实际测试结果在 res.data 中
+    const testResult = res.data || res
+    
+    // 兼容两种字段命名方式：responseTime (驼峰) 和 response_time (蛇形)
+    // 使用 ?? 而不是 ||，因为 0 是有效的响应时间
+    const responseTime = testResult.responseTime ?? testResult.response_time
+    const responseText = testResult.responseText ?? testResult.response_text
+    const errorMessage = testResult.errorMessage ?? testResult.error_message
+    
+    // 调试：打印实际返回的数据结构
+    console.log('测试结果:', testResult)
+    console.log('响应时间字段:', { responseTime, response_time: testResult.response_time })
+    
+    if (testResult.success) {
+      // 检查 responseTime 是否为有效数字（包括 0）
+      const timeText = (responseTime !== undefined && responseTime !== null && responseTime !== '') 
+        ? `${responseTime}秒` 
+        : '未知'
+      ElMessage.success(
+        `连接测试成功！响应时间: ${timeText}` + 
+        (responseText ? `\n响应: ${responseText.substring(0, 50)}...` : '')
+      )
+    } else {
+      ElMessage.error(
+        `连接测试失败: ${errorMessage || '未知错误'}`
+      )
+    }
   } catch (error) {
     loading.close()
-    ElMessage.error('连接测试失败')
+    const errorMsg = error.response?.data?.msg || error.message || '连接测试失败'
+    ElMessage.error(`连接测试失败: ${errorMsg}`)
   }
 }
 

@@ -244,10 +244,25 @@ async def test_config(
     test_prompt: Annotated[str, Query(description='测试提示词')] = '你好',
 ) -> Response:
     """测试AI模型配置"""
-    result = await AiModelService.test_config(query_db, config_id, test_prompt)
-    logger.info(f'测试AI模型配置ID为{config_id}')
-    
-    if result.success:
-        return ResponseUtil.success(data=result, msg='测试成功')
-    else:
-        return ResponseUtil.error(data=result, msg=result.error_message)
+    try:
+        result = await AiModelService.test_config(query_db, config_id, test_prompt)
+        logger.info(f'测试AI模型配置ID为{config_id}')
+        
+        # 使用 model_dump(by_alias=True) 确保字段名转换为 camelCase
+        result_dict = result.model_dump(by_alias=True)
+        
+        if result.success:
+            return ResponseUtil.success(data=result_dict, msg='测试成功')
+        else:
+            # 确保有错误信息
+            error_msg = result.error_message or '测试失败，未知错误'
+            return ResponseUtil.error(data=result_dict, msg=error_msg)
+    except Exception as e:
+        logger.error(f'测试AI模型配置失败 (Config ID: {config_id}): {str(e)}', exc_info=True)
+        error_result = AiModelTestResponseModel(
+            success=False,
+            error_message=f'测试失败: {str(e)}',
+            response_time=0.0
+        )
+        error_dict = error_result.model_dump(by_alias=True)
+        return ResponseUtil.error(data=error_dict, msg=f'测试失败: {str(e)}')

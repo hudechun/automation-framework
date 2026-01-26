@@ -124,4 +124,6 @@ if __name__ == '__main__':
         port=AppConfig.app_port,
         root_path=AppConfig.app_root_path,
         reload=AppConfig.app_reload,
+        timeout_keep_alive=300,  # 保持连接超时 5 分钟
+        timeout_graceful_shutdown=30,  # 优雅关闭超时 30 秒
     )

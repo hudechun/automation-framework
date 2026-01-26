@@ -4,7 +4,7 @@
 from datetime import datetime
 from typing import Any, Literal, Optional, Union
 
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict, Field, field_validator
 from pydantic.alias_generators import to_camel
 from pydantic_validation_decorator import NotBlank, Size
 
@@ -27,9 +27,18 @@ class ThesisModel(BaseModel):
     major: Optional[str] = Field(default=None, description='专业')
     degree_level: Optional[str] = Field(default=None, description='学历层次')
     template_id: Optional[int] = Field(default=None, description='格式模板ID')
-    status: Optional[Literal['draft', 'generating', 'completed', 'exported']] = Field(
+    status: Optional[Literal['draft', 'generating', 'completed', 'exported', 'formatted']] = Field(
         default=None, description='论文状态'
     )
+    
+    @field_validator('status', mode='before')
+    @classmethod
+    def validate_status(cls, v):
+        """去除状态值的首尾空格"""
+        if isinstance(v, str):
+            v = v.strip()
+        return v
+    
     word_count: Optional[int] = Field(default=None, description='字数统计')
     create_by: Optional[str] = Field(default=None, description='创建者')
     create_time: Optional[datetime] = Field(default=None, description='创建时间')
@@ -64,6 +73,7 @@ class ThesisCreateModel(BaseModel):
     major: Optional[str] = Field(default=None, description='专业')
     degree_level: Optional[str] = Field(default=None, description='学历层次')
     template_id: Optional[int] = Field(default=None, description='格式模板ID')
+    chapter_word_count_requirement: Optional[str] = Field(default=None, description='每章节字数要求（格式：最小值-最大值，如：2000-3000）')
     remark: Optional[str] = Field(default=None, description='备注')
 
     @NotBlank(field_name='title', message='论文标题不能为空')
@@ -96,6 +106,15 @@ class ThesisUpdateModel(BaseModel):
     degree_level: Optional[str] = Field(default=None, description='学历层次')
     template_id: Optional[int] = Field(default=None, description='格式模板ID')
     status: Optional[str] = Field(default=None, description='论文状态')
+    
+    @field_validator('status', mode='before')
+    @classmethod
+    def validate_status(cls, v):
+        """去除状态值的首尾空格"""
+        if isinstance(v, str):
+            v = v.strip()
+        return v
+    
     remark: Optional[str] = Field(default=None, description='备注')
 
     @NotBlank(field_name='thesis_id', message='论文ID不能为空')

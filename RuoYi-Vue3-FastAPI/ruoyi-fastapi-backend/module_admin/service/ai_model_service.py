@@ -15,6 +15,7 @@ from module_admin.entity.vo.ai_model_vo import (
     PresetModelModel,
 )
 from utils.common_util import CamelCaseUtil
+from utils.log_util import logger
 
 
 class AiModelService:
@@ -131,7 +132,18 @@ class AiModelService:
                     message=f'模型代码 {config_data.model_code} ({config_data.model_type}) 已存在'
                 )
 
-            await AiModelConfigDao.add_config(query_db, config_data.model_dump(exclude_none=True))
+            # 处理字段：现在数据库表中已经有 api_base_url 字段，直接保存即可
+            add_data = config_data.model_dump(exclude_none=True)
+            
+            # 注意：如果前端同时传递了 api_base_url 和 api_endpoint，优先使用 api_base_url
+            # 如果 api_base_url 为空但 api_endpoint 有值且不是相对路径，可以使用 api_endpoint 作为 api_base_url
+            if not add_data.get('api_base_url') and add_data.get('api_endpoint'):
+                endpoint_value = add_data.get('api_endpoint')
+                # 如果 api_endpoint 不是相对路径（不以 / 开头），可以作为 api_base_url
+                if isinstance(endpoint_value, str) and endpoint_value.strip() and not endpoint_value.startswith('/'):
+                    add_data['api_base_url'] = endpoint_value
+            
+            await AiModelConfigDao.add_config(query_db, add_data)
             await query_db.commit()
             return CrudResponseModel(is_success=True, message='新增成功')
         except ServiceException:
@@ -184,10 +196,17 @@ class AiModelService:
             if hasattr(config_data, 'max_tokens') and config_data.max_tokens is not None:
                 params_to_merge['max_tokens'] = int(config_data.max_tokens)
                 has_params_update = True
+            # 处理 api_base_url：现在数据库表中已经有 api_base_url 字段，直接保存即可
+            # 如果 api_base_url 为空但 api_endpoint 有值且不是相对路径，可以使用 api_endpoint 作为 api_base_url
             if hasattr(config_data, 'api_base_url') and config_data.api_base_url is not None:
-                # 将 api_base_url 映射到 api_endpoint（如果 api_endpoint 不在更新数据中）
-                if 'api_endpoint' not in update_data:
-                    update_data['api_endpoint'] = config_data.api_base_url
+                # api_base_url 已经在 update_data 中（因为没有被排除），无需特殊处理
+                pass
+            elif hasattr(config_data, 'api_endpoint') and config_data.api_endpoint:
+                # 如果 api_base_url 为空但 api_endpoint 有值且不是相对路径，可以作为 api_base_url
+                endpoint_value = config_data.api_endpoint
+                if isinstance(endpoint_value, str) and endpoint_value.strip() and not endpoint_value.startswith('/'):
+                    if 'api_base_url' not in update_data:
+                        update_data['api_base_url'] = endpoint_value
             
             # 分离普通字段
             filtered_data = {}
@@ -374,15 +393,26 @@ class AiModelService:
 
             result = await AiGenerationService.test_ai_connection(query_db, config_id, test_prompt)
 
+            # 确保 result 是字典格式，并且包含必要的字段
+            if not isinstance(result, dict):
+                raise ValueError(f"test_ai_connection 返回了非字典类型: {type(result)}")
+
             return AiModelTestResponseModel(
-                success=result['success'],
+                success=result.get('success', False),
                 response_text=result.get('response_text'),
                 error_message=result.get('error_message'),
-                response_time=result['response_time'],
+                response_time=result.get('response_time', 0.0),
             )
 
         except Exception as e:
-            return AiModelTestResponseModel(success=False, error_message=f'测试失败: {str(e)}', response_time=0)
+            import traceback
+            error_detail = traceback.format_exc()
+            logger.error(f"测试AI模型配置失败 (Config ID: {config_id}): {str(e)}\n{error_detail}")
+            return AiModelTestResponseModel(
+                success=False, 
+                error_message=f'测试失败: {str(e)}', 
+                response_time=0.0
+            )
 
     @classmethod
     async def get_config_by_code(

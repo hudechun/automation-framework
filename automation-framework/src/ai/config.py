@@ -278,7 +278,17 @@ def model_config_from_db_model(db_model: Any) -> ModelConfig:
         ModelConfig对象
     """
     # 处理SQLAlchemy模型
-    if hasattr(db_model, 'provider') and hasattr(db_model, 'model'):
+    if hasattr(db_model, 'provider'):
+        # 支持 model 或 model_version 字段
+        model_name = None
+        if hasattr(db_model, 'model'):
+            model_name = db_model.model
+        elif hasattr(db_model, 'model_version'):
+            model_name = db_model.model_version
+        
+        if not model_name:
+            raise ValueError("数据库模型必须包含 'model' 或 'model_version' 字段")
+        
         params = db_model.params if hasattr(db_model, 'params') and db_model.params else {}
         if isinstance(params, str):
             import json
@@ -287,11 +297,34 @@ def model_config_from_db_model(db_model: Any) -> ModelConfig:
             except:
                 params = {}
         
+        # 获取 api_base，可能来自不同字段名
+        api_base = None
+        if hasattr(db_model, 'api_base'):
+            api_base_value = db_model.api_base
+            if api_base_value and isinstance(api_base_value, str):
+                api_base = api_base_value.strip() if api_base_value.strip() else None
+        elif hasattr(db_model, 'api_base_url'):
+            api_base_value = db_model.api_base_url
+            if api_base_value and isinstance(api_base_value, str):
+                api_base = api_base_value.strip() if api_base_value.strip() else None
+        elif hasattr(db_model, 'api_endpoint'):
+            # 如果 api_endpoint 是相对路径（以 / 开头），则忽略
+            api_endpoint_value = db_model.api_endpoint
+            if api_endpoint_value and isinstance(api_endpoint_value, str):
+                api_endpoint_value = api_endpoint_value.strip()
+                if api_endpoint_value and not api_endpoint_value.startswith('/'):
+                    api_base = api_endpoint_value
+        
+        # 处理 provider 字段，支持字符串或枚举
+        provider_value = db_model.provider
+        if isinstance(provider_value, str):
+            provider_value = provider_value.lower()
+        
         return ModelConfig(
-            provider=ModelProvider(db_model.provider),
-            model=db_model.model,
+            provider=ModelProvider(provider_value),
+            model=model_name,
             api_key=getattr(db_model, 'api_key', None),
-            api_base=getattr(db_model, 'api_base', None),
+            api_base=api_base,
             params=params
         )
     

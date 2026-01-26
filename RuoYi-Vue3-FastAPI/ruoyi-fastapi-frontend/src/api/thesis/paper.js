@@ -43,12 +43,13 @@ export function delPaper(thesisId) {
   })
 }
 
-// 生成大纲
+// 生成大纲（长时间任务，超时时间 5 分钟）
 export function generateOutline(thesisId) {
   return request({
     url: '/thesis/paper/' + thesisId + '/outline',
     method: 'post',
-    data: {}
+    data: {},
+    timeout: 5 * 60 * 1000  // 5 分钟超时
   })
 }
 
@@ -60,26 +61,24 @@ export function getOutline(thesisId) {
   })
 }
 
-// 生成章节
+// 生成章节（长时间任务，超时时间 5 分钟）
 export function generateChapter(data) {
   return request({
     url: '/thesis/paper/' + data.thesisId + '/chapter',
     method: 'post',
-    data: data
+    data: data,
+    timeout: 5 * 60 * 1000  // 5 分钟超时
   })
 }
 
-// 批量生成章节 (循环调用单个生成)
-export async function batchGenerateChapters(data) {
-  const results = []
-  for (const chapter of data.chapters) {
-    const result = await generateChapter({
-      thesisId: data.thesisId,
-      ...chapter
-    })
-    results.push(result)
-  }
-  return { data: results }
+// 批量生成章节（使用真正的批量接口，统一检查配额）
+export function batchGenerateChapters(thesisId, chapters) {
+  return request({
+    url: '/thesis/paper/' + thesisId + '/chapters/batch',
+    method: 'post',
+    data: chapters,  // 直接传递章节数组
+    timeout: 30 * 60 * 1000  // 30 分钟超时（批量生成可能需要较长时间）
+  })
 }
 
 // 查询章节列表
@@ -90,12 +89,45 @@ export function listChapters(thesisId) {
   })
 }
 
-// 导出论文
-export function exportPaper(data) {
+// 查询章节生成进度
+export function getChapterProgress(thesisId) {
   return request({
-    url: '/thesis/paper/export',
+    url: '/thesis/paper/' + thesisId + '/chapters/progress',
+    method: 'get'
+  })
+}
+
+// 继续生成未完成的章节
+export function continueGenerateChapters(thesisId) {
+  return request({
+    url: '/thesis/paper/' + thesisId + '/chapters/continue',
     method: 'post',
-    data: data,
+    timeout: 30 * 60 * 1000  // 30 分钟超时
+  })
+}
+
+// 查询论文生成进度
+export function getThesisProgress(thesisId) {
+  return request({
+    url: '/thesis/paper/' + thesisId + '/progress',
+    method: 'get'
+  })
+}
+
+// 格式化论文
+export function formatThesis(thesisId) {
+  return request({
+    url: '/thesis/paper/' + thesisId + '/format',
+    method: 'post',
+    timeout: 10 * 60 * 1000  // 10 分钟超时
+  })
+}
+
+// 下载论文（格式化后的Word文档）
+export function downloadThesis(thesisId) {
+  return request({
+    url: '/thesis/paper/' + thesisId + '/download',
+    method: 'get',
     responseType: 'blob'
   })
 }

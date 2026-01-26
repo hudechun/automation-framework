@@ -16,9 +16,12 @@ axios.defaults.headers['Content-Type'] = 'application/json;charset=utf-8'
 const service = axios.create({
   // axios中请求配置有baseURL选项，表示请求URL公共部分
   baseURL: import.meta.env.VITE_APP_BASE_API,
-  // 超时
+  // 超时时间：默认 10 秒，长时间任务（如AI生成）使用 5 分钟
   timeout: 10000
 })
+
+// 长时间任务的超时时间（5分钟）
+const LONG_TASK_TIMEOUT = 5 * 60 * 1000  // 300000ms = 5分钟
 
 // request拦截器
 service.interceptors.request.use(config => {
@@ -28,6 +31,23 @@ service.interceptors.request.use(config => {
   const isRepeatSubmit = (config.headers || {}).repeatSubmit === false
   if (getToken() && !isToken) {
     config.headers['Authorization'] = 'Bearer ' + getToken() // 让每个请求携带自定义token 请根据实际情况自行修改
+  }
+  
+  // 检查是否为长时间任务（AI生成相关接口）
+  const longTaskUrls = [
+    '/thesis/paper/',
+    '/thesis/paper/.*/outline',
+    '/thesis/paper/.*/chapter',
+    '/thesis/paper/.*/chapters/batch'
+  ]
+  const isLongTask = longTaskUrls.some(pattern => {
+    const regex = new RegExp(pattern.replace(/\*/g, '.*'))
+    return regex.test(config.url)
+  })
+  
+  // 如果是长时间任务且没有自定义超时，则使用长时间超时
+  if (isLongTask && !config.timeout) {
+    config.timeout = LONG_TASK_TIMEOUT
   }
   // get请求映射params参数
   if (config.method === 'get' && config.params) {
@@ -95,8 +115,14 @@ service.interceptors.response.use(res => {
     }
       return Promise.reject('无效的会话，或者会话已过期，请重新登录。')
     } else if (code === 500) {
-      ElMessage({ message: msg, type: 'error' })
-      return Promise.reject(new Error(msg))
+      // 确保错误消息不为空
+      const errorMessage = msg || res.data.msg || '服务器内部错误'
+      ElMessage({ message: errorMessage, type: 'error' })
+      // 创建一个包含完整响应信息的错误对象
+      const error = new Error(errorMessage)
+      error.response = res
+      error.code = code
+      return Promise.reject(error)
     } else if (code === 601) {
       ElMessage({ message: msg, type: 'warning' })
       return Promise.reject(new Error(msg))

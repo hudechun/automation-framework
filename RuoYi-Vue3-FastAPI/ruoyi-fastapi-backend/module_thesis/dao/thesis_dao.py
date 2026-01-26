@@ -245,6 +245,54 @@ class ThesisChapterDao:
         return list(chapter_list)
 
     @classmethod
+    async def get_chapter_by_title_and_thesis(
+        cls, db: AsyncSession, thesis_id: int, title: str
+    ) -> Union[AiWriteThesisChapter, None]:
+        """
+        根据论文ID和章节标题获取章节（用于检查章节是否已存在）
+
+        :param db: orm对象
+        :param thesis_id: 论文ID
+        :param title: 章节标题
+        :return: 章节对象或None
+        """
+        chapter = (
+            await db.execute(
+                select(AiWriteThesisChapter)
+                .where(
+                    AiWriteThesisChapter.thesis_id == thesis_id,
+                    AiWriteThesisChapter.title == title
+                )
+            )
+        ).scalars().first()
+
+        return chapter
+
+    @classmethod
+    async def get_incomplete_chapters_by_thesis(
+        cls, db: AsyncSession, thesis_id: int
+    ) -> list[AiWriteThesisChapter]:
+        """
+        获取论文中未完成的章节（状态不是completed）
+
+        :param db: orm对象
+        :param thesis_id: 论文ID
+        :return: 未完成的章节列表
+        """
+        chapter_list = (
+            await db.execute(
+                select(AiWriteThesisChapter)
+                .where(
+                    AiWriteThesisChapter.thesis_id == thesis_id,
+                    AiWriteThesisChapter.status != 'completed'
+                )
+                .order_by(AiWriteThesisChapter.order_num)
+            )
+        ).scalars().all()
+
+        return list(chapter_list)
+
+    @classmethod
     async def get_chapter_list_by_outline(cls, db: AsyncSession, outline_id: int) -> list[AiWriteThesisChapter]:
         """
         获取大纲的所有章节

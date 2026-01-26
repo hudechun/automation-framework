@@ -94,6 +94,83 @@ class TemplateService:
             template_dict['usage_count'] = 0
             template_dict['status'] = '0'  # 启用
             
+            # 如果提供了 file_path，验证文件是否存在并尝试解析格式数据
+            file_path = template_dict.get('file_path')
+            if file_path:
+                import os
+                from config.env import UploadConfig
+                from utils.log_util import logger
+                
+                # 将相对路径转换为实际文件系统路径
+                # 处理URL格式：http://127.0.0.1:9099/dev-api/profile/upload/... -> /profile/upload/...
+                if file_path.startswith('http://') or file_path.startswith('https://'):
+                    # 提取URL中的路径部分
+                    from urllib.parse import urlparse
+                    parsed_url = urlparse(file_path)
+                    file_path = parsed_url.path
+                    # 移除 /dev-api 前缀（如果存在）
+                    if file_path.startswith('/dev-api'):
+                        file_path = file_path.replace('/dev-api', '', 1)
+                
+                # 如果 file_path 是 /profile/upload/... 格式，需要转换为实际路径
+                if file_path.startswith(UploadConfig.UPLOAD_PREFIX):
+                    # 将 /profile 替换为实际的上传目录
+                    actual_file_path = file_path.replace(UploadConfig.UPLOAD_PREFIX, UploadConfig.UPLOAD_PATH)
+                    # 处理路径分隔符（Windows/Linux兼容）
+                    actual_file_path = os.path.normpath(actual_file_path)
+                else:
+                    # 如果已经是绝对路径或相对路径，直接使用
+                    actual_file_path = file_path
+                
+                # 检查文件是否存在
+                if not os.path.exists(actual_file_path):
+                    logger.error(f"模板文件不存在 - 实际路径: {actual_file_path}, 原始路径: {file_path}")
+                    # 尝试检查是否是路径问题
+                    if not os.path.isabs(actual_file_path):
+                        # 尝试相对于工作目录
+                        abs_path = os.path.abspath(actual_file_path)
+                        if os.path.exists(abs_path):
+                            actual_file_path = abs_path
+                            logger.info(f"找到文件（使用绝对路径）: {actual_file_path}")
+                        else:
+                            raise ServiceException(
+                                message=f'模板文件不存在。请确保文件已上传。\n'
+                                       f'原始路径: {file_path}\n'
+                                       f'实际路径: {actual_file_path}\n'
+                                       f'绝对路径: {abs_path}'
+                            )
+                    else:
+                        raise ServiceException(
+                            message=f'模板文件不存在。请确保文件已上传。\n'
+                                   f'原始路径: {file_path}\n'
+                                   f'实际路径: {actual_file_path}'
+                        )
+                
+                # 文件存在，尝试解析格式数据
+                if not template_dict.get('format_data'):
+                    try:
+                        from module_thesis.service.format_service import FormatService
+                        
+                        # 读取Word文档并提取格式指令
+                        read_result = await FormatService.read_word_document_with_ai(query_db, actual_file_path)
+                        format_instructions = read_result['format_instructions']
+                        
+                        # 尝试解析为JSON格式
+                        try:
+                            import json
+                            format_data = json.loads(format_instructions) if isinstance(format_instructions, str) else format_instructions
+                            template_dict['format_data'] = format_data
+                        except (json.JSONDecodeError, TypeError):
+                            # 如果解析失败，尝试提取JSON部分
+                            format_data = FormatService._extract_json_from_text(format_instructions)
+                            template_dict['format_data'] = format_data
+                        
+                        logger.info(f"模板上传时自动解析格式数据成功 - 模板: {template_dict.get('template_name')}, 文件: {actual_file_path}")
+                    except Exception as e:
+                        # 解析失败不影响模板创建，只记录警告
+                        logger.warning(f"模板上传时解析格式数据失败，将使用空格式数据: {str(e)}", exc_info=True)
+                        # format_data 保持为空，后续可以手动解析
+            
             new_template = await FormatTemplateDao.add_template(query_db, template_dict)
             # 在flush后立即获取ID，避免commit后访问
             template_id = new_template.template_id
