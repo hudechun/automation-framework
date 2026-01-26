@@ -7,27 +7,37 @@
 系统默认会在以下位置查找 Skills：
 
 ```
-automation-framework/
-└── skills/          ← Skills 安装在这里
-    ├── docx/
-    │   └── SKILL.md
-    ├── pdf/
-    │   └── SKILL.md
-    ├── xlsx/
-    │   └── SKILL.md
-    └── ...
+AutoFlow-Platform/          ← 项目根目录
+├── automation-framework/
+├── RuoYi-Vue3-FastAPI/
+└── skills/                 ← Skills 安装在这里（整个平台共享）
+    ├── skills/            ← Anthropic Skills 仓库的 skills 文件夹
+    │   ├── docx/
+    │   │   └── SKILL.md
+    │   ├── pdf/
+    │   │   └── SKILL.md
+    │   ├── xlsx/
+    │   │   └── SKILL.md
+    │   └── ...
+    ├── spec/
+    └── README.md
 ```
 
 **完整路径**：
-- Windows: `D:\AUTO-PC\AutoFlow-Platform\automation-framework\skills\`
-- Linux/Mac: `{项目根目录}/automation-framework/skills/`
+- Windows: `D:\AUTO-PC\AutoFlow-Platform\skills\`
+- Linux/Mac: `{项目根目录}/skills/`
+
+**为什么放在项目根目录？**
+- 整个平台（RuoYi-Vue3-FastAPI 和 automation-framework）都可以共享 Skills
+- 更符合项目结构，便于统一管理
+- 避免重复安装
 
 ## 安装步骤
 
-### 步骤1：进入项目目录
+### 步骤1：进入项目根目录
 
 ```bash
-cd D:\AUTO-PC\AutoFlow-Platform\automation-framework
+cd D:\AUTO-PC\AutoFlow-Platform
 ```
 
 ### 步骤2：克隆 Anthropic Skills 仓库
@@ -48,18 +58,18 @@ git clone https://github.com/anthropics/skills.git /path/to/custom/skills
 安装后，目录结构应该是：
 
 ```
-automation-framework/
-├── skills/                    ← 新克隆的目录
-│   ├── skills/               ← Skills 文件夹
-│   │   ├── docx/
-│   │   ├── pdf/
-│   │   ├── xlsx/
-│   │   └── ...
-│   ├── spec/
-│   ├── template/
-│   └── README.md
-├── src/
-└── ...
+AutoFlow-Platform/              ← 项目根目录
+├── automation-framework/
+├── RuoYi-Vue3-FastAPI/
+└── skills/                     ← 新克隆的目录
+    ├── skills/                 ← Skills 文件夹
+    │   ├── docx/
+    │   ├── pdf/
+    │   ├── xlsx/
+    │   └── ...
+    ├── spec/
+    ├── template/
+    └── README.md
 ```
 
 ## 使用自定义路径
@@ -94,14 +104,16 @@ skills = loader.load_skills_from_directory(Path("D:/MySkills/skills"))
 
 ```python
 # 默认路径计算
-Path(__file__).parent.parent.parent / "skills"
+project_root = Path(__file__).parent.parent.parent.parent
+self.skills_dir = project_root / "skills"
 
 # 解析：
 # __file__ = automation-framework/src/ai/anthropic_skills_loader.py
 # .parent = automation-framework/src/ai/
 # .parent.parent = automation-framework/src/
 # .parent.parent.parent = automation-framework/
-# 最终 = automation-framework/skills/
+# .parent.parent.parent.parent = AutoFlow-Platform/ (项目根目录)
+# 最终 = AutoFlow-Platform/skills/
 ```
 
 ### 检查当前路径
@@ -200,25 +212,28 @@ git clone https://github.com/anthropics/skills.git
 安装后的完整结构：
 
 ```
-automation-framework/
-├── skills/                          ← 克隆的仓库
-│   ├── skills/                     ← 实际的 Skills
-│   │   ├── docx/                   ← DOCX Skill
-│   │   │   ├── SKILL.md
-│   │   │   ├── docx-js.md
-│   │   │   └── ooxml.md
-│   │   ├── pdf/                    ← PDF Skill
-│   │   │   └── SKILL.md
-│   │   ├── xlsx/                   ← Excel Skill
-│   │   │   └── SKILL.md
-│   │   └── ...                     ← 其他 Skills
-│   ├── spec/                       ← 规范文档
-│   ├── template/                   ← 模板
-│   └── README.md
-├── src/
-│   └── ai/
-│       └── anthropic_skills_loader.py
-└── ...
+AutoFlow-Platform/                   ← 项目根目录
+├── automation-framework/
+│   ├── src/
+│   │   └── ai/
+│   │       └── anthropic_skills_loader.py
+│   └── ...
+├── RuoYi-Vue3-FastAPI/
+│   └── ...
+└── skills/                          ← 克隆的仓库（整个平台共享）
+    ├── skills/                     ← 实际的 Skills
+    │   ├── docx/                   ← DOCX Skill
+    │   │   ├── SKILL.md
+    │   │   ├── docx-js.md
+    │   │   └── ooxml.md
+    │   ├── pdf/                    ← PDF Skill
+    │   │   └── SKILL.md
+    │   ├── xlsx/                   ← Excel Skill
+    │   │   └── SKILL.md
+    │   └── ...                     ← 其他 Skills
+    ├── spec/                       ← 规范文档
+    ├── template/                   ← 模板
+    └── README.md
 ```
 
 ## 下一步

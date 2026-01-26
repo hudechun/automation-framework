@@ -41,8 +41,11 @@ class AnthropicSkillsLoader:
         if skills_dir:
             self.skills_dir = Path(skills_dir)
         else:
-            # 默认路径：项目根目录下的 skills 文件夹
-            self.skills_dir = Path(__file__).parent.parent.parent / "skills"
+            # 默认路径：整个项目根目录下的 skills 文件夹
+            # __file__ = automation-framework/src/ai/anthropic_skills_loader.py
+            # 向上4级到达项目根目录: AutoFlow-Platform/
+            project_root = Path(__file__).parent.parent.parent.parent
+            self.skills_dir = project_root / "skills"
         
         self.skills_dir.mkdir(parents=True, exist_ok=True)
         self.loaded_skills: Dict[str, AnthropicSkill] = {}
