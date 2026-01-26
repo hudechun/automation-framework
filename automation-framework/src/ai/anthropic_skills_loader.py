@@ -327,9 +327,9 @@ class AnthropicSkillsLoader:
             try:
                 template = self.convert_to_scenario_template(skill)
                 if template:
-                    # 创建新的场景类型（使用技能名称）
-                    scenario_type = ScenarioType(skill_name.replace('-', '_'))
-                    scenario_planner.SCENARIO_TEMPLATES[scenario_type] = template
+                    # 使用推断的场景类型或创建新的
+                    # 注意：如果场景类型已存在，会覆盖原有模板
+                    scenario_planner.SCENARIO_TEMPLATES[template.scenario_type] = template
                     registered_count += 1
                     logger.info(f"Registered skill as scenario: {skill_name}")
             except Exception as e:
