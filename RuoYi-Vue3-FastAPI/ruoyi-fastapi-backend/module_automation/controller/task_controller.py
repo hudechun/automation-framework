@@ -236,9 +236,9 @@ async def get_task_execution_progress(
 async def get_task_execution_logs(
     request: Request,
     task_id: Annotated[int, Path(description='任务ID')],
+    query_db: Annotated[AsyncSession, DBSessionDependency()],
     skip: Annotated[int, Query(ge=0, description='跳过条数')] = 0,
     limit: Annotated[int, Query(ge=1, le=1000, description='返回条数')] = 100,
-    query_db: Annotated[AsyncSession, DBSessionDependency()],
 ) -> Response:
     logs_result = await TaskService.get_task_execution_logs_services(query_db, task_id, skip, limit)
     return ResponseUtil.success(data=logs_result)

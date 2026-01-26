@@ -43,9 +43,16 @@ router.beforeEach((to, from, next) => {
             next({ ...to, replace: true }) // hack方法 确保addRoutes已完成
           })
         }).catch(err => {
+          isRelogin.show = false
+          // Token失效或签名验证失败，清除Token并跳转到登录页
           useUserStore().logOut().then(() => {
-            ElMessage.error(err)
-            next({ path: '/' })
+            const errorMsg = err.toString()
+            if (errorMsg.includes('Signature verification failed') || errorMsg.includes('签名验证失败')) {
+              ElMessage.error('登录状态已失效，请重新登录')
+            } else {
+              ElMessage.error(err)
+            }
+            next({ path: '/login', query: { redirect: to.fullPath } })
           })
         })
       } else {

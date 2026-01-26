@@ -1,3 +1,11 @@
+"""
+⚠️ 已弃用：请使用 app.py 启动应用
+
+此文件保留仅为向后兼容，建议使用统一的 app.py 启动文件。
+
+使用方法：
+    python app.py
+"""
 from collections.abc import AsyncGenerator
 from contextlib import asynccontextmanager
 
@@ -106,3 +114,12 @@ def create_app() -> FastAPI:
         logger.warning(f'Automation Framework挂载失败: {e}')
 
     return app
+
+
+# 如果直接运行此文件，提示使用 app.py
+if __name__ == '__main__':
+    print("⚠️  警告：请使用 app.py 启动应用")
+    print("   python app.py")
+    print()
+    import sys
+    sys.exit(1)

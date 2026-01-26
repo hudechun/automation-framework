@@ -1,0 +1,565 @@
+<template>
+  <div class="modern-container">
+    <!-- 支付渠道配置 -->
+    <div class="channels-grid">
+      <div v-for="channel in channels" :key="channel.code" class="channel-card glass-card">
+        <div class="card-header">
+          <div class="channel-info">
+            <div class="channel-icon" :style="{ background: channel.gradient }">
+              <component :is="channel.icon" class="w-8 h-8" />
+            </div>
+            <div class="channel-name">
+              <div class="name">{{ channel.name }}</div>
+              <div class="code">{{ channel.code }}</div>
+            </div>
+          </div>
+          <el-switch
+            v-model="channel.enabled"
+            @change="handleToggle(channel)"
+            v-hasPermi="['thesis:payment:config']"
+            class="modern-switch"
+          />
+        </div>
+        
+        <div class="channel-content">
+          <div class="info-row">
+            <span class="label">状态</span>
+            <div class="status-badge" :class="channel.enabled ? 'status-active' : 'status-inactive'">
+              <div class="status-dot"></div>
+              <span>{{ channel.enabled ? '已启用' : '已禁用' }}</span>
+            </div>
+          </div>
+          <div class="info-row">
+            <span class="label">手续费率</span>
+            <span class="value">{{ channel.feeRate }}%</span>
+          </div>
+          <div class="info-row">
+            <span class="label">金额范围</span>
+            <span class="value">¥{{ channel.minAmount }} - ¥{{ channel.maxAmount }}</span>
+          </div>
+          
+          <div class="channel-actions">
+            <el-button
+              @click="handleEdit(channel)"
+              v-hasPermi="['thesis:payment:config']"
+              class="action-btn"
+            >
+              <Settings class="w-4 h-4 mr-2" />
+              配置
+            </el-button>
+            <el-button
+              @click="handleTest(channel)"
+              v-hasPermi="['thesis:payment:test']"
+              class="action-btn"
+            >
+              <Zap class="w-4 h-4 mr-2" />
+              测试
+            </el-button>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- 配置对话框 -->
+    <el-dialog :title="`配置${currentChannel?.name}`" v-model="configVisible" width="600px" append-to-body>
+      <el-form ref="configFormRef" :model="configForm" :rules="configRules" label-width="120px">
+        <el-form-item label="渠道代码">
+          <el-input v-model="configForm.provider_type" disabled placeholder="支付方式的唯一标识" />
+          <div style="font-size: 12px; color: #909399; margin-top: 4px;">
+            alipay=支付宝, wechat=微信支付, pingpp=Ping++
+          </div>
+        </el-form-item>
+        <el-form-item label="提供商名称">
+          <el-input v-model="configForm.provider_name" placeholder="如：支付宝直连" />
+        </el-form-item>
+        <el-form-item label="是否启用">
+          <el-switch 
+            v-model="configForm.is_enabled" 
+            active-value="1"
+            inactive-value="0"
+          />
+        </el-form-item>
+        <el-form-item label="手续费率(%)" prop="fee_rate">
+          <el-input-number
+            v-model="configForm.fee_rate"
+            :min="0"
+            :max="1"
+            :precision="4"
+            :step="0.0001"
+            style="width: 100%"
+          />
+          <div style="font-size: 12px; color: #909399; margin-top: 4px;">
+            0.0060 = 0.6%
+          </div>
+        </el-form-item>
+        <el-form-item label="优先级">
+          <el-input-number
+            v-model="configForm.priority"
+            :min="0"
+            :max="999"
+            style="width: 100%"
+          />
+          <div style="font-size: 12px; color: #909399; margin-top: 4px;">
+            数字越大优先级越高
+          </div>
+        </el-form-item>
+        <el-form-item label="配置数据">
+          <el-input
+            v-model="configDataStr"
+            type="textarea"
+            :rows="8"
+            placeholder='JSON格式，如：{"app_id": "xxx", "api_key": "xxx"}'
+          />
+          <div style="font-size: 12px; color: #909399; margin-top: 4px;">
+            请输入JSON格式的配置数据
+          </div>
+        </el-form-item>
+        <el-form-item label="备注" prop="remark">
+          <el-input
+            v-model="configForm.remark"
+            type="textarea"
+            :rows="2"
+            placeholder="请输入备注"
+          />
+        </el-form-item>
+      </el-form>
+      <template #footer>
+        <el-button @click="configVisible = false">取消</el-button>
+        <el-button type="primary" @click="submitConfig">保存</el-button>
+      </template>
+    </el-dialog>
+
+    <!-- 测试对话框 -->
+    <el-dialog title="测试支付" v-model="testVisible" width="500px" append-to-body>
+      <el-form :model="testForm" label-width="100px">
+        <el-form-item label="支付渠道">
+          <el-tag type="primary">{{ currentChannel?.name }}</el-tag>
+        </el-form-item>
+        <el-form-item label="测试金额">
+          <el-input-number
+            v-model="testForm.amount"
+            :min="0.01"
+            :precision="2"
+            style="width: 100%"
+          />
+        </el-form-item>
+        <el-form-item label="订单描述">
+          <el-input
+            v-model="testForm.subject"
+            placeholder="测试订单"
+          />
+        </el-form-item>
+      </el-form>
+      <template #footer>
+        <el-button @click="testVisible = false">取消</el-button>
+        <el-button type="primary" @click="submitTest" :loading="testLoading">
+          发起测试
+        </el-button>
+      </template>
+    </el-dialog>
+  </div>
+</template>
+
+<script setup name="PaymentConfig">
+import { ref, reactive, onMounted, getCurrentInstance } from 'vue'
+import { ElMessage, ElMessageBox } from 'element-plus'
+import { CreditCard, Wallet, Banknote, Settings, Zap } from 'lucide-vue-next'
+import { listPaymentConfig, getPaymentConfig, updatePaymentConfig, testPayment } from '@/api/thesis/payment'
+
+const { proxy } = getCurrentInstance()
+
+// 配置数据的字符串表示（用于编辑）
+const configDataStr = ref('')
+
+const channels = ref([
+  {
+    code: 'alipay',
+    name: '支付宝',
+    icon: Wallet,
+    gradient: 'linear-gradient(135deg, #1677ff 0%, #0050b3 100%)',
+    enabled: false,
+    feeRate: 0.6,
+    minAmount: 0.01,
+    maxAmount: 50000
+  },
+  {
+    code: 'wechat',
+    name: '微信支付',
+    icon: Banknote,
+    gradient: 'linear-gradient(135deg, #07c160 0%, #059669 100%)',
+    enabled: false,
+    feeRate: 0.6,
+    minAmount: 0.01,
+    maxAmount: 50000
+  },
+  {
+    code: 'pingpp',
+    name: 'Ping++',
+    icon: CreditCard,
+    gradient: 'linear-gradient(135deg, #ff6b6b 0%, #ee5a6f 100%)',
+    enabled: false,
+    feeRate: 0.6,
+    minAmount: 0.01,
+    maxAmount: 50000
+  }
+])
+
+const configVisible = ref(false)
+const testVisible = ref(false)
+const testLoading = ref(false)
+const currentChannel = ref(null)
+
+const configForm = reactive({
+  config_id: null,
+  provider_type: null,
+  provider_name: null,
+  config_data: {},
+  supported_channels: [],
+  is_enabled: '0',
+  fee_rate: 0.0060,
+  priority: 0,
+  remark: null
+})
+
+const testForm = reactive({
+  channel: null,
+  amount: 0.01,
+  subject: '测试订单'
+})
+
+const configRules = {
+  fee_rate: [{ required: true, message: '请输入手续费率', trigger: 'blur' }]
+}
+
+// 获取配置列表
+const getConfigList = async () => {
+  try {
+    const res = await listPaymentConfig()
+    // 更新渠道状态
+    res.data.forEach(config => {
+      const channel = channels.value.find(c => c.code === config.channel)
+      if (channel) {
+        channel.enabled = config.enabled
+        channel.feeRate = config.feeRate
+        channel.minAmount = config.minAmount
+        channel.maxAmount = config.maxAmount
+      }
+    })
+  } catch (error) {
+    console.error('获取配置失败', error)
+    if (error.message && error.message.includes('管理员')) {
+      ElMessage.warning('仅管理员可以访问支付配置')
+    } else {
+      ElMessage.error('获取配置失败: ' + (error.message || '未知错误'))
+    }
+  }
+}
+
+// 切换启用状态
+const handleToggle = async (channel) => {
+  try {
+    const res = await getPaymentConfig(channel.code)
+    if (res.data) {
+      await updatePaymentConfig({
+        ...res.data,
+        enabled: channel.enabled
+      })
+      ElMessage.success(channel.enabled ? '已启用' : '已禁用')
+    } else {
+      ElMessage.warning('请先配置该支付渠道')
+      channel.enabled = false
+    }
+  } catch (error) {
+    channel.enabled = !channel.enabled
+    if (error.message && error.message.includes('管理员')) {
+      ElMessage.warning('仅管理员可以修改支付配置')
+    } else {
+      ElMessage.error('操作失败: ' + (error.message || '未知错误'))
+    }
+  }
+}
+
+// 编辑配置
+const handleEdit = async (channel) => {
+  currentChannel.value = channel
+  try {
+    const res = await getPaymentConfig(channel.code)
+    if (res.data) {
+      Object.assign(configForm, {
+        config_id: res.data.config_id,
+        provider_type: res.data.provider_type,
+        provider_name: res.data.provider_name,
+        config_data: res.data.config_data || {},
+        supported_channels: res.data.supported_channels || [],
+        is_enabled: res.data.is_enabled || '0',
+        fee_rate: res.data.fee_rate || 0.0060,
+        priority: res.data.priority || 0,
+        remark: res.data.remark
+      })
+      // 将 config_data 转换为 JSON 字符串用于编辑
+      configDataStr.value = JSON.stringify(configForm.config_data, null, 2)
+    } else {
+      // 新建配置
+      resetConfigForm()
+      configForm.provider_type = channel.code
+      configForm.provider_name = channel.name
+      configForm.fee_rate = channel.feeRate / 100  // 转换为小数
+      configDataStr.value = '{}'
+    }
+    configVisible.value = true
+  } catch (error) {
+    if (error.message && error.message.includes('管理员')) {
+      ElMessage.warning('仅管理员可以访问支付配置')
+    } else {
+      ElMessage.error('获取配置失败: ' + (error.message || '未知错误'))
+    }
+  }
+}
+
+// 提交配置
+const submitConfig = async () => {
+  try {
+    // 解析 JSON 字符串
+    try {
+      configForm.config_data = JSON.parse(configDataStr.value)
+    } catch (e) {
+      ElMessage.error('配置数据格式错误，请输入有效的JSON')
+      return
+    }
+    
+    await updatePaymentConfig(configForm)
+    ElMessage.success('保存成功')
+    configVisible.value = false
+    getConfigList()
+  } catch (error) {
+    if (error.message && error.message.includes('管理员')) {
+      ElMessage.warning('仅管理员可以修改支付配置')
+    } else {
+      ElMessage.error('保存失败: ' + (error.message || '未知错误'))
+    }
+  }
+}
+
+// 测试支付
+const handleTest = (channel) => {
+  if (!channel.enabled) {
+    ElMessage.warning('请先启用该支付渠道')
+    return
+  }
+  currentChannel.value = channel
+  testForm.channel = channel.code
+  testForm.amount = channel.minAmount
+  testForm.subject = `测试${channel.name}支付`
+  testVisible.value = true
+}
+
+// 提交测试
+const submitTest = async () => {
+  testLoading.value = true
+  try {
+    const res = await testPayment(testForm)
+    ElMessageBox.alert(
+      `<div>
+        <p>测试订单创建成功</p>
+        <p>订单号: ${res.data.orderNo}</p>
+        <p>支付链接: <a href="${res.data.payUrl}" target="_blank">点击支付</a></p>
+      </div>`,
+      '测试结果',
+      {
+        dangerouslyUseHTMLString: true,
+        type: 'success'
+      }
+    )
+    testVisible.value = false
+  } catch (error) {
+    if (error.message && error.message.includes('管理员')) {
+      ElMessage.warning('仅管理员可以测试支付')
+    } else {
+      ElMessage.error('测试失败: ' + (error.message || '未知错误'))
+    }
+  } finally {
+    testLoading.value = false
+  }
+}
+
+// 重置配置表单
+const resetConfigForm = () => {
+  configForm.config_id = null
+  configForm.provider_type = null
+  configForm.provider_name = null
+  configForm.config_data = {}
+  configForm.supported_channels = []
+  configForm.is_enabled = '0'
+  configForm.fee_rate = 0.0060
+  configForm.priority = 0
+  configForm.remark = null
+  configDataStr.value = '{}'
+}
+
+onMounted(() => {
+  getConfigList()
+})
+</script>
+
+<style scoped lang="scss">
+.modern-container {
+  min-height: 100vh;
+  background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+  padding: 2rem;
+}
+
+.channels-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(350px, 1fr));
+  gap: 1.5rem;
+}
+
+.glass-card {
+  background: rgba(255, 255, 255, 0.95);
+  backdrop-filter: blur(20px);
+  border-radius: 24px;
+  padding: 2rem;
+  box-shadow: 0 8px 32px rgba(0, 0, 0, 0.1);
+  border: 1px solid rgba(255, 255, 255, 0.3);
+  transition: all 0.3s;
+  
+  &:hover {
+    transform: translateY(-8px);
+    box-shadow: 0 12px 48px rgba(0, 0, 0, 0.15);
+  }
+}
+
+.channel-card {
+  .card-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    margin-bottom: 1.5rem;
+    padding-bottom: 1.5rem;
+    border-bottom: 1px solid rgba(0, 0, 0, 0.05);
+    
+    .channel-info {
+      display: flex;
+      align-items: center;
+      gap: 1rem;
+      
+      .channel-icon {
+        width: 64px;
+        height: 64px;
+        border-radius: 16px;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        color: white;
+        box-shadow: 0 4px 12px rgba(0, 0, 0, 0.15);
+      }
+      
+      .channel-name {
+        .name {
+          font-size: 1.25rem;
+          font-weight: 600;
+          color: #1e293b;
+          margin-bottom: 0.25rem;
+        }
+        
+        .code {
+          font-size: 0.875rem;
+          color: #94a3b8;
+        }
+      }
+    }
+    
+    .modern-switch {
+      :deep(.el-switch__core) {
+        height: 28px;
+        border-radius: 14px;
+      }
+    }
+  }
+  
+  .channel-content {
+    .info-row {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      padding: 0.75rem 0;
+      
+      .label {
+        font-size: 0.875rem;
+        color: #64748b;
+        font-weight: 500;
+      }
+      
+      .value {
+        font-size: 0.875rem;
+        color: #1e293b;
+        font-weight: 600;
+      }
+      
+      .status-badge {
+        display: inline-flex;
+        align-items: center;
+        gap: 0.5rem;
+        padding: 0.5rem 1rem;
+        border-radius: 12px;
+        font-size: 0.875rem;
+        font-weight: 500;
+        
+        .status-dot {
+          width: 8px;
+          height: 8px;
+          border-radius: 50%;
+        }
+        
+        &.status-active {
+          background: rgba(34, 197, 94, 0.1);
+          color: #16a34a;
+          
+          .status-dot {
+            background: #16a34a;
+            box-shadow: 0 0 8px rgba(34, 197, 94, 0.5);
+          }
+        }
+        
+        &.status-inactive {
+          background: rgba(148, 163, 184, 0.1);
+          color: #64748b;
+          
+          .status-dot {
+            background: #94a3b8;
+          }
+        }
+      }
+    }
+    
+    .channel-actions {
+      margin-top: 1.5rem;
+      padding-top: 1.5rem;
+      border-top: 1px solid rgba(0, 0, 0, 0.05);
+      display: flex;
+      gap: 0.75rem;
+      
+      .action-btn {
+        flex: 1;
+        border-radius: 12px;
+        padding: 0.75rem 1rem;
+        font-weight: 500;
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        transition: all 0.3s;
+        background: white;
+        border: 1px solid #e2e8f0;
+        color: #64748b;
+        
+        &:hover {
+          background: #f8fafc;
+          border-color: #cbd5e1;
+          transform: translateY(-2px);
+          box-shadow: 0 4px 12px rgba(0, 0, 0, 0.05);
+        }
+      }
+    }
+  }
+}
+</style>

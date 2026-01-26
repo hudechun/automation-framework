@@ -19,8 +19,10 @@ class CaptchaService:
         # 创建绘图对象
         draw = ImageDraw.Draw(image)
 
-        # 设置字体
-        font = ImageFont.truetype(os.path.join(os.path.abspath(os.getcwd()), 'assets', 'font', 'Arial.ttf'), size=30)
+        # 设置字体 - 使用当前文件所在目录的相对路径
+        current_dir = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+        font_path = os.path.join(current_dir, 'assets', 'font', 'Arial.ttf')
+        font = ImageFont.truetype(font_path, size=30)
 
         # 生成两个0-9之间的随机整数
         num1 = random.randint(0, 9)
