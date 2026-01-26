@@ -167,29 +167,30 @@ class AnthropicProvider(LLMProvider):
             try:
                 # 限流控制
                 await self.rate_limiter.acquire(self.api_key)
-        # 转换消息格式
-        system_message = None
-        converted_messages = []
-        
-        for msg in messages:
-            if msg["role"] == "system":
-                system_message = msg["content"]
-            else:
-                converted_messages.append({
-                    "role": msg["role"],
-                    "content": msg["content"]
-                })
-        
-        params = {
-            "model": self.config.model,
-            "messages": converted_messages,
-            "max_tokens": kwargs.get("max_tokens", 4096),
-            **self.config.params,
-        }
-        
-        if system_message:
-            params["system"] = system_message
-        
+                
+                # 转换消息格式
+                system_message = None
+                converted_messages = []
+                
+                for msg in messages:
+                    if msg["role"] == "system":
+                        system_message = msg["content"]
+                    else:
+                        converted_messages.append({
+                            "role": msg["role"],
+                            "content": msg["content"]
+                        })
+                
+                params = {
+                    "model": self.config.model,
+                    "messages": converted_messages,
+                    "max_tokens": kwargs.get("max_tokens", 4096),
+                    **self.config.params,
+                }
+                
+                if system_message:
+                    params["system"] = system_message
+                
                 response = await self.client.messages.create(**params)
                 return response.content[0].text
                 
