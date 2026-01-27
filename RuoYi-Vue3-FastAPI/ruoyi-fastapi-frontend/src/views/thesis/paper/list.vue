@@ -571,12 +571,21 @@ const handleGenerate = async (row) => {
     await checkChapterProgress(row.thesisId)
     await checkThesisProgress(row.thesisId)
   } else {
-    // 检查是否已有大纲
+    // 草稿状态：检查是否已有大纲
     try {
       const outlineRes = await getOutline(row.thesisId)
       const outline = outlineRes.data
-      if (outline && (outline.outlineStructure || outline.outlineData)) {
-        // 已有大纲，直接跳到生成内容步骤
+      
+      // 严格判断：大纲数据必须存在且有实际内容
+      const outlineData = outline?.outlineStructure || outline?.outlineData
+      const hasValidOutline = outlineData && 
+                              typeof outlineData === 'object' && 
+                              outlineData.chapters && 
+                              Array.isArray(outlineData.chapters) && 
+                              outlineData.chapters.length > 0
+      
+      if (hasValidOutline) {
+        // 已有有效大纲，直接跳到生成内容步骤
         generateStep.value = 2
         outlineProgress.value = 100
         
@@ -586,12 +595,13 @@ const handleGenerate = async (row) => {
         // 检查论文整体进度（包括格式化）
         await checkThesisProgress(row.thesisId)
       } else {
-        // 没有大纲，从步骤0开始
+        // 没有有效大纲，从步骤0开始
         generateStep.value = 0
         outlineProgress.value = 0
       }
     } catch (error) {
       // 获取大纲失败，从步骤0开始
+      console.error('获取大纲失败:', error)
       generateStep.value = 0
       outlineProgress.value = 0
     }
@@ -710,31 +720,62 @@ const checkThesisProgress = async (thesisId) => {
     const progressRes = await getThesisProgress(thesisId)
     const progress = progressRes.data
     
+    // 获取当前论文状态（从currentPaper或progress中获取）
+    const currentStatus = currentPaper.value?.status || progress?.status || ''
+    
     if (progress) {
       const totalProgress = progress.totalProgress || 0
       
       // 根据进度和状态设置步骤
-      if (totalProgress >= 100 || row.status === 'completed') {
+      if (totalProgress >= 100 || currentStatus === 'completed') {
         // 全部完成（包括格式化）
         generateStep.value = 6
         formatProgress.value = 100
-      } else if (row.status === 'formatted') {
+      } else if (currentStatus === 'formatted') {
         // 章节已生成，等待格式化
         generateStep.value = 4
         formatProgress.value = 0
-      } else if (totalProgress >= 60 || row.status === 'generating') {
+      } else if (totalProgress >= 60 || currentStatus === 'generating') {
         // 大纲和内容完成，或正在生成章节
         generateStep.value = 2
-        await checkChapterProgress(row.thesisId)
+        await checkChapterProgress(thesisId)
       } else if (totalProgress >= 20) {
         // 只有大纲完成
         generateStep.value = 2
       }
       
       // 更新各步骤进度
+      // 注意：后端已经修复了判断逻辑，会验证大纲数据是否有实际内容
       outlineProgress.value = progress.outline_progress || 0
       contentProgress.value = progress.chapters_progress || 0
       formatProgress.value = progress.format_progress_detail || 0
+      
+      // 如果后端返回了大纲进度，但前端验证发现大纲无效，则重置
+      // 这种情况可能发生在后端修复前已存在的数据
+      if (outlineProgress.value > 0 && (currentStatus === 'draft' || !currentStatus)) {
+        try {
+          const outlineRes = await getOutline(thesisId)
+          const outline = outlineRes.data
+          const outlineData = outline?.outlineStructure || outline?.outlineData
+          const hasValidOutline = outlineData && 
+                                  typeof outlineData === 'object' && 
+                                  outlineData.chapters && 
+                                  Array.isArray(outlineData.chapters) && 
+                                  outlineData.chapters.length > 0
+          
+          if (!hasValidOutline) {
+            // 大纲数据无效，重置进度
+            outlineProgress.value = 0
+            // 如果当前步骤是2（生成内容），应该回到步骤0
+            if (generateStep.value === 2 && totalProgress < 20) {
+              generateStep.value = 0
+            }
+          }
+        } catch (error) {
+          // 获取大纲失败，保持原进度（可能是网络问题）
+          console.debug('验证大纲数据失败:', error)
+        }
+      }
     }
   } catch (error) {
     console.error('检查论文进度失败:', error)

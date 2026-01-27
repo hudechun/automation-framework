@@ -80,3 +80,32 @@ class AiWriteTemplateFormatRule(Base):
         server_default=SqlalchemyUtil.get_server_default_null(DataBaseConfig.db_type),
         comment='备注',
     )
+
+
+class UniversalInstructionSystem(Base):
+    """
+    通用格式指令系统表
+    """
+
+    __tablename__ = 'universal_instruction_system'
+    __table_args__ = {'comment': '通用格式指令系统表'}
+
+    id = Column(BigInteger, primary_key=True, nullable=False, autoincrement=True, comment='ID')
+    version = Column(String(50), nullable=False, comment='版本号')
+    description = Column(String(500), nullable=True, comment='描述')
+    instruction_data = Column(
+        JSON,
+        nullable=False,
+        comment='指令数据（JSON格式，完整指令系统）',
+    )
+    is_active = Column(CHAR(1), nullable=True, server_default='1', comment='是否激活（0否 1是）')
+    create_by = Column(String(64), nullable=True, server_default="''", comment='创建者')
+    create_time = Column(DateTime, nullable=True, default=datetime.now, comment='创建时间')
+    update_by = Column(String(64), nullable=True, server_default="''", comment='更新者')
+    update_time = Column(DateTime, nullable=True, default=datetime.now, onupdate=datetime.now, comment='更新时间')
+    remark = Column(
+        String(500),
+        nullable=True,
+        server_default=SqlalchemyUtil.get_server_default_null(DataBaseConfig.db_type),
+        comment='备注',
+    )

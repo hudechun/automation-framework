@@ -60,9 +60,17 @@ class OpenAIProvider(LLMProvider):
         super().__init__(config)
         try:
             import openai
+            import httpx
+            # 创建自定义的 httpx.AsyncClient 以避免版本兼容性问题
+            # 新版本的 httpx 不再支持 proxies 参数，需要显式创建 client
+            http_client = httpx.AsyncClient(
+                timeout=httpx.Timeout(60.0, connect=10.0),
+                limits=httpx.Limits(max_keepalive_connections=5, max_connections=10)
+            )
             self.client = openai.AsyncOpenAI(
                 api_key=config.api_key,
-                base_url=config.api_base
+                base_url=config.api_base,
+                http_client=http_client
             )
         except ImportError:
             raise ImportError("openai package is not installed. Install it with: pip install openai")
@@ -361,10 +369,18 @@ class QwenProvider(LLMProvider):
         super().__init__(config)
         try:
             import openai
+            import httpx
+            # 创建自定义的 httpx.AsyncClient 以避免版本兼容性问题
+            # 新版本的 httpx 不再支持 proxies 参数，需要显式创建 client
+            http_client = httpx.AsyncClient(
+                timeout=httpx.Timeout(60.0, connect=10.0),
+                limits=httpx.Limits(max_keepalive_connections=5, max_connections=10)
+            )
             # Qwen使用OpenAI兼容的API
             self.client = openai.AsyncOpenAI(
                 api_key=config.api_key,
-                base_url=config.api_base or "https://dashscope.aliyuncs.com/compatible-mode/v1"
+                base_url=config.api_base or "https://dashscope.aliyuncs.com/compatible-mode/v1",
+                http_client=http_client
             )
         except ImportError:
             raise ImportError("openai package is not installed. Install it with: pip install openai")

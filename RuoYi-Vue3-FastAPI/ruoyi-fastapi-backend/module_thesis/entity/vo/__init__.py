@@ -51,6 +51,14 @@ from module_thesis.entity.vo.order_vo import (
     RefundOrderModel,
 )
 
+# 指令系统相关VO
+from module_thesis.entity.vo.instruction_system_vo import (
+    InstructionSystemAddModel,
+    InstructionSystemPageQueryModel,
+    InstructionSystemUpdateModel,
+    UniversalInstructionSystemModel,
+)
+
 # 模板相关VO
 from module_thesis.entity.vo.template_vo import (
     AddFormatRuleModel,
@@ -130,6 +138,11 @@ __all__ = [
     'RestoreVersionModel',
     'ThesisDetailResponseModel',
     'ThesisListItemModel',
+    # 指令系统相关VO
+    'UniversalInstructionSystemModel',
+    'InstructionSystemPageQueryModel',
+    'InstructionSystemAddModel',
+    'InstructionSystemUpdateModel',
     # 模板相关VO
     'FormatTemplateModel',
     'TemplateUploadModel',

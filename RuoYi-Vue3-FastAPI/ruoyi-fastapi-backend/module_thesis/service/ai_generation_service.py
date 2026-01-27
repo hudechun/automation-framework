@@ -342,8 +342,18 @@ class AiGenerationService:
                                 level_1 = chapter_numbering.get('level_1', {})
                                 pattern = level_1.get('pattern', '第X章 标题')
                                 examples = level_1.get('examples', [])
+                                number_style = level_1.get('number_style', 'chinese')
+                                
                                 if examples:
-                                    numbering_format_instruction = f"\n\n**章节标题格式要求**：\n- 章节标题必须包含完整的编号格式，如：{', '.join(examples[:3])}\n- 不要只写标题文本，必须包含编号部分（如：第一章 引言，而不是只有 引言）"
+                                    numbering_format_instruction = f"\n\n**章节标题格式要求**（必须严格遵守）：\n- 章节标题必须包含完整的编号格式，例如：{', '.join(examples[:3])}\n- **重要**：不要只写标题文本（如：\"引言\"），必须包含编号部分（如：\"第一章 引言\"）\n- 编号格式：{pattern}\n- 数字样式：{number_style}\n- 示例：\n"
+                                    # 添加更多示例
+                                    for i in range(1, min(6, len(examples) + 1)):
+                                        if number_style == 'chinese':
+                                            chinese_nums = ['一', '二', '三', '四', '五', '六']
+                                            if i <= len(chinese_nums):
+                                                numbering_format_instruction += f"  - 第{chinese_nums[i-1]}章 标题{i}\n"
+                                        else:
+                                            numbering_format_instruction += f"  - {pattern.replace('{number}', str(i)).replace('{title}', f'标题{i}')}\n"
                             
                             format_requirements = "\n\n" + "\n".join(format_requirements_parts) + order_instruction + numbering_format_instruction + "\n\n**重要**：请严格按照以上格式要求生成大纲，确保：\n1. 一级标题使用指定的格式（如：第一章 引言、第二章 文献综述）\n2. 二级标题使用指定的格式（如：1.1、1.2）\n3. 特殊章节（摘要、关键词、结论、参考文献）**chapter_number必须设置为null或不设置**\n4. 普通章节的chapter_number必须从1开始连续递增\n5. 章节顺序必须严格按照上述章节顺序要求\n6. 章节在chapters数组中的顺序必须与章节顺序要求一致"
                             
@@ -395,6 +405,21 @@ class AiGenerationService:
             # 解析大纲内容
             outline_data = cls._parse_outline_response(response)
             logger.info(f"大纲解析完成，章节数: {len(outline_data.get('chapters', []))}")
+            
+            # 如果有格式指令，传递给验证方法用于动态识别特殊章节
+            format_instructions_for_validation = None
+            if template_id:
+                try:
+                    from module_thesis.dao.template_dao import FormatTemplateDao
+                    template = await FormatTemplateDao.get_template_by_id(query_db, template_id)
+                    if template and template.format_data:
+                        import json
+                        format_instructions_for_validation = json.loads(template.format_data) if isinstance(template.format_data, str) else template.format_data
+                except Exception as e:
+                    logger.debug(f"读取格式指令用于验证失败: {str(e)}")
+            
+            # 验证和规范化大纲（传入格式指令用于动态识别特殊章节）
+            outline_data = cls._validate_outline_format(outline_data, format_instructions_for_validation)
             
             return outline_data
             
@@ -552,11 +577,12 @@ class AiGenerationService:
             }
     
     @classmethod
-    def _validate_outline_format(cls, outline_data: Dict[str, Any]) -> Dict[str, Any]:
+    def _validate_outline_format(cls, outline_data: Dict[str, Any], format_instructions: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
         """
         验证和规范化大纲格式
         
         :param outline_data: 解析后的大纲数据
+        :param format_instructions: 格式指令（可选，用于动态识别特殊章节）
         :return: 验证和规范化后的大纲数据
         """
         # 确保有 title 字段
@@ -570,8 +596,28 @@ class AiGenerationService:
             logger.warning("大纲chapters字段不是数组，已转换为空数组")
             outline_data['chapters'] = []
         
-        # 识别特殊章节（根据标题）
-        special_chapter_keywords = ['摘要', '关键词', '结论', '结语', '参考文献', '致谢', 'Abstract', 'Key words', 'References', 'Acknowledgement', '目录', '目　录']
+        # 从格式指令中动态识别特殊章节（无编号的章节）
+        special_chapter_titles = []
+        if format_instructions:
+            try:
+                application_rules = format_instructions.get('application_rules', {})
+                special_sections = application_rules.get('special_section_format_rules', {})
+                
+                for section_type, section_config in special_sections.items():
+                    title = section_config.get('title', '')
+                    has_numbering = section_config.get('should_have_numbering', False)
+                    if title and not has_numbering:
+                        special_chapter_titles.append(title)
+                        logger.debug(f"从格式指令识别特殊章节（无编号）：{title}")
+            except Exception as e:
+                logger.warning(f"从格式指令提取特殊章节配置失败: {str(e)}，将使用默认配置")
+        
+        # 如果没有格式指令或提取失败，使用默认的特殊章节列表（向后兼容）
+        if not special_chapter_titles:
+            special_chapter_titles = ['摘要', '关键词', '结论', '结语', '参考文献', '致谢', 'Abstract', 'Key words', 'References', 'Acknowledgement', '目录', '目　录']
+            logger.debug("使用默认特殊章节列表（无格式指令或提取失败）")
+        
+        logger.info(f"特殊章节列表（无编号）：{special_chapter_titles}")
         
         # 验证和规范化每个章节
         validated_chapters = []
@@ -585,8 +631,8 @@ class AiGenerationService:
             
             chapter_title = chapter.get('chapter_title', '')
             
-            # 判断是否为特殊章节（无编号）
-            is_special = any(keyword in chapter_title for keyword in special_chapter_keywords)
+            # 判断是否为特殊章节（无编号）- 使用从格式指令中提取的标题列表
+            is_special = any(special_title in chapter_title or chapter_title == special_title for special_title in special_chapter_titles)
             
             validated_chapter = {
                 'chapter_title': chapter_title,
@@ -629,8 +675,44 @@ class AiGenerationService:
                 validated_chapter['sections'] = validated_sections
         
         # 重新规范化numbered_chapters的chapter_number，确保从1开始连续递增
+        # 同时检查并纠正章节标题格式
         for idx, chapter in enumerate(numbered_chapters):
             chapter['chapter_number'] = idx + 1
+            chapter_title = chapter.get('chapter_title', '')
+            
+            # 如果格式指令中有章节编号格式要求，检查并纠正标题格式
+            if format_instructions:
+                try:
+                    application_rules = format_instructions.get('application_rules', {})
+                    chapter_numbering = application_rules.get('chapter_numbering_format', {})
+                    level_1 = chapter_numbering.get('level_1', {})
+                    
+                    if level_1:
+                        pattern = level_1.get('pattern', '第{number}章 {title}')
+                        number_style = level_1.get('number_style', 'chinese')
+                        
+                        # 检查标题是否包含编号格式
+                        expected_prefix = None
+                        if number_style == 'chinese':
+                            # 转换为中文数字（使用format_service中的方法）
+                            from module_thesis.service.format_service import FormatService
+                            chinese_num = FormatService._number_to_chinese(chapter['chapter_number'])
+                            expected_prefix = f"第{chinese_num}章"
+                        else:
+                            # 阿拉伯数字
+                            expected_prefix = f"第{chapter['chapter_number']}章"
+                        
+                        # 检查标题是否已经包含编号格式
+                        if expected_prefix and expected_prefix not in chapter_title:
+                            # 标题不包含编号格式，自动添加
+                            original_title = chapter_title.strip()
+                            # 移除可能存在的数字前缀（如"1. "、"1 "等）
+                            title_cleaned = original_title.replace(f"{chapter['chapter_number']}. ", "").replace(f"{chapter['chapter_number']} ", "").strip()
+                            chapter['chapter_title'] = f"{expected_prefix} {title_cleaned}"
+                            logger.info(f"自动纠正章节标题格式：\"{original_title}\" -> \"{chapter['chapter_title']}\"")
+                except Exception as e:
+                    logger.debug(f"检查章节标题格式时出错: {str(e)}")
+            
             logger.debug(f"规范化普通章节编号：索引{idx} -> chapter_number={chapter['chapter_number']}, 标题={chapter['chapter_title']}")
         
         # 合并章节：保持原始顺序，但规范化编号
@@ -640,7 +722,7 @@ class AiGenerationService:
         
         for idx, chapter in enumerate(outline_data['chapters']):
             chapter_title = chapter.get('chapter_title', '')
-            is_special = any(keyword in chapter_title for keyword in special_chapter_keywords)
+            is_special = any(special_title in chapter_title or chapter_title == special_title for special_title in special_chapter_titles)
             
             if is_special:
                 # 特殊章节：从special_chapters中找到对应的章节
@@ -681,7 +763,8 @@ class AiGenerationService:
         outline_data['chapters'] = all_chapters
         logger.info(f"大纲验证完成，共 {len(all_chapters)} 个章节")
         logger.info(f"  特殊章节（无编号）：{[c['chapter_title'] for c in all_chapters if c.get('chapter_number') is None]}")
-        logger.info(f"  普通章节（有编号）：{[f\"{c['chapter_number']}. {c['chapter_title']}\" for c in all_chapters if c.get('chapter_number') is not None]}")
+        numbered_chapters_info = [f"{c['chapter_number']}. {c['chapter_title']}" for c in all_chapters if c.get('chapter_number') is not None]
+        logger.info(f"  普通章节（有编号）：{numbered_chapters_info}")
         return outline_data
 
     @classmethod

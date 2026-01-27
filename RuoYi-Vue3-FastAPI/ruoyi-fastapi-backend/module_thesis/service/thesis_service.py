@@ -1131,9 +1131,25 @@ class ThesisService:
         :param thesis_id: 论文ID
         :return: 进度信息
         """
-        # 检查大纲
+        # 检查大纲（必须存在且有实际内容）
         outline = await ThesisOutlineDao.get_outline_by_thesis_id(query_db, thesis_id)
-        has_outline = outline is not None and outline.outline_data is not None
+        has_outline = False
+        if outline and outline.outline_data:
+            # 检查大纲数据是否有实际内容
+            outline_data = outline.outline_data
+            # 如果是字符串，尝试解析
+            if isinstance(outline_data, str):
+                try:
+                    import json
+                    outline_data = json.loads(outline_data)
+                except (json.JSONDecodeError, TypeError):
+                    outline_data = None
+            
+            # 验证大纲数据是否有有效的章节
+            if outline_data and isinstance(outline_data, dict):
+                chapters = outline_data.get('chapters') or outline_data.get('chapters')
+                if chapters and isinstance(chapters, list) and len(chapters) > 0:
+                    has_outline = True
         
         # 检查章节
         chapters = await ThesisChapterDao.get_chapter_list_by_thesis(query_db, thesis_id)

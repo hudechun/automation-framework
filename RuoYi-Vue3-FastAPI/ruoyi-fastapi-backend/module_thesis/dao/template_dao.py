@@ -7,7 +7,7 @@ from sqlalchemy import delete, func, select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from common.vo import PageModel
-from module_thesis.entity.do.template_do import AiWriteFormatTemplate, AiWriteTemplateFormatRule
+from module_thesis.entity.do.template_do import AiWriteFormatTemplate, AiWriteTemplateFormatRule, UniversalInstructionSystem
 from utils.page_util import PageUtil
 
 
@@ -91,9 +91,54 @@ class FormatTemplateDao:
         :param template_data: 模板数据
         :return: 模板对象
         """
+        # 添加调试日志
+        from utils.log_util import logger
+        import sys
+        print("=" * 100)
+        print(f"[DAO] 准备保存模板到数据库")
+        print(f"  template_data keys: {list(template_data.keys())}")
+        print(f"  file_path: {template_data.get('file_path')}")
+        print(f"  file_name: {template_data.get('file_name')}")
+        print(f"  file_size: {template_data.get('file_size')}")
+        print("=" * 100)
+        sys.stdout.flush()
+        logger.info("=" * 100)
+        logger.info(f"[DAO] 准备保存模板到数据库")
+        logger.info(f"  template_data keys: {list(template_data.keys())}")
+        logger.info(f"  file_path: {template_data.get('file_path')}")
+        logger.info(f"  file_name: {template_data.get('file_name')}")
+        logger.info(f"  file_size: {template_data.get('file_size')}")
+        logger.info("=" * 100)
+        
+        # 验证必填字段
+        if not template_data.get('file_path'):
+            error_msg = "file_path 字段为空，无法保存模板"
+            print(f"[DAO] ✗ 错误: {error_msg}")
+            logger.error(f"[DAO] {error_msg}")
+            raise ValueError(error_msg)
+        
+        if not template_data.get('file_name'):
+            error_msg = "file_name 字段为空，无法保存模板"
+            print(f"[DAO] ✗ 错误: {error_msg}")
+            logger.error(f"[DAO] {error_msg}")
+            raise ValueError(error_msg)
+        
         db_template = AiWriteFormatTemplate(**template_data)
         db.add(db_template)
         await db.flush()
+        
+        # 验证保存后的数据
+        print(f"[DAO] ✓ 模板已保存到数据库（flush后）")
+        print(f"  template_id: {db_template.template_id}")
+        print(f"  file_path: {db_template.file_path}")
+        print(f"  file_name: {db_template.file_name}")
+        print(f"  file_size: {db_template.file_size}")
+        sys.stdout.flush()
+        logger.info(f"[DAO] ✓ 模板已保存到数据库（flush后）")
+        logger.info(f"  template_id: {db_template.template_id}")
+        logger.info(f"  file_path: {db_template.file_path}")
+        logger.info(f"  file_name: {db_template.file_name}")
+        logger.info(f"  file_size: {db_template.file_size}")
 
         return db_template
 
@@ -103,10 +148,47 @@ class FormatTemplateDao:
         更新模板
 
         :param db: orm对象
-        :param template_data: 模板数据
+        :param template_data: 模板数据（必须包含 template_id）
         :return:
         """
-        await db.execute(update(AiWriteFormatTemplate), [template_data])
+        # 提取 template_id 作为更新条件
+        template_id = template_data.pop('template_id', None)
+        if not template_id:
+            raise ValueError("template_data 必须包含 template_id")
+        
+        # 添加调试日志
+        from utils.log_util import logger
+        import sys
+        print(f"[DAO] 准备更新模板")
+        print(f"  template_id: {template_id}")
+        print(f"  要更新的字段: {list(template_data.keys())}")
+        if 'format_data' in template_data:
+            format_data = template_data.get('format_data')
+            if isinstance(format_data, dict):
+                print(f"  format_data 类型: dict, 键数量: {len(format_data)}")
+            else:
+                print(f"  format_data 类型: {type(format_data).__name__}")
+        sys.stdout.flush()
+        logger.info(f"[DAO] 准备更新模板")
+        logger.info(f"  template_id: {template_id}")
+        logger.info(f"  要更新的字段: {list(template_data.keys())}")
+        if 'format_data' in template_data:
+            format_data = template_data.get('format_data')
+            if isinstance(format_data, dict):
+                logger.info(f"  format_data 类型: dict, 键数量: {len(format_data)}")
+            else:
+                logger.info(f"  format_data 类型: {type(format_data).__name__}")
+        
+        # 执行更新操作
+        await db.execute(
+            update(AiWriteFormatTemplate)
+            .where(AiWriteFormatTemplate.template_id == template_id)
+            .values(**template_data)
+        )
+        
+        print(f"[DAO] ✓ 模板更新操作已执行")
+        sys.stdout.flush()
+        logger.info(f"[DAO] ✓ 模板更新操作已执行")
 
     @classmethod
     async def delete_template(cls, db: AsyncSession, template_id: int) -> None:
@@ -181,6 +263,125 @@ class FormatTemplateDao:
         ).scalar()
 
         return count > 0
+
+
+class UniversalInstructionSystemDao:
+    """
+    通用格式指令系统数据访问对象
+    """
+
+    @classmethod
+    async def get_active_instruction_system(cls, db: AsyncSession) -> Union[UniversalInstructionSystem, None]:
+        """
+        获取激活的完整指令系统
+
+        :param db: orm对象
+        :return: 指令系统对象
+        """
+        instruction_system = (
+            await db.execute(
+                select(UniversalInstructionSystem)
+                .where(UniversalInstructionSystem.is_active == '1')
+                .order_by(UniversalInstructionSystem.id.desc())
+            )
+        ).scalars().first()
+
+        return instruction_system
+
+    @classmethod
+    async def get_instruction_system_by_id(cls, db: AsyncSession, system_id: int) -> Union[UniversalInstructionSystem, None]:
+        """
+        根据ID获取指令系统
+
+        :param db: orm对象
+        :param system_id: 指令系统ID
+        :return: 指令系统对象
+        """
+        instruction_system = (
+            await db.execute(
+                select(UniversalInstructionSystem).where(UniversalInstructionSystem.id == system_id)
+            )
+        ).scalars().first()
+
+        return instruction_system
+
+    @classmethod
+    async def get_instruction_system_by_version(cls, db: AsyncSession, version: str) -> Union[UniversalInstructionSystem, None]:
+        """
+        根据版本号获取指令系统
+
+        :param db: orm对象
+        :param version: 版本号
+        :return: 指令系统对象
+        """
+        instruction_system = (
+            await db.execute(
+                select(UniversalInstructionSystem).where(UniversalInstructionSystem.version == version)
+            )
+        ).scalars().first()
+
+        return instruction_system
+
+    @classmethod
+    async def add_instruction_system(cls, db: AsyncSession, instruction_data: dict) -> UniversalInstructionSystem:
+        """
+        添加完整指令系统
+
+        :param db: orm对象
+        :param instruction_data: 指令系统数据
+        :return: 指令系统对象
+        """
+        instruction_system = UniversalInstructionSystem(**instruction_data)
+        db.add(instruction_system)
+        await db.flush()
+        # 刷新对象以获取所有属性（包括自动生成的ID）
+        await db.refresh(instruction_system)
+        return instruction_system
+
+    @classmethod
+    async def update_instruction_system(cls, db: AsyncSession, system_id: int, instruction_data: dict) -> bool:
+        """
+        更新指令系统
+
+        :param db: orm对象
+        :param system_id: 指令系统ID
+        :param instruction_data: 更新的数据
+        :return: 是否成功
+        """
+        await db.execute(
+            update(UniversalInstructionSystem)
+            .where(UniversalInstructionSystem.id == system_id)
+            .values(**instruction_data)
+        )
+        return True
+
+    @classmethod
+    async def deactivate_all(cls, db: AsyncSession) -> bool:
+        """
+        将所有指令系统设置为非激活状态
+
+        :param db: orm对象
+        :return: 是否成功
+        """
+        await db.execute(
+            update(UniversalInstructionSystem)
+            .values(is_active='0')
+        )
+        return True
+
+    @classmethod
+    async def delete_instruction_system(cls, db: AsyncSession, system_id: int) -> bool:
+        """
+        删除指令系统
+
+        :param db: orm对象
+        :param system_id: 指令系统ID
+        :return: 是否成功
+        """
+        await db.execute(
+            delete(UniversalInstructionSystem).where(UniversalInstructionSystem.id == system_id)
+        )
+        return True
 
 
 class TemplateFormatRuleDao:

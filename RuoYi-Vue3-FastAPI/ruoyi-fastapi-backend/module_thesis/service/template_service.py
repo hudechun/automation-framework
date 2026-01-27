@@ -15,6 +15,7 @@ from module_thesis.entity.vo import (
     TemplatePageQueryModel,
 )
 from utils.common_util import CamelCaseUtil
+from utils.log_util import logger
 
 
 class TemplateService:
@@ -83,7 +84,18 @@ class TemplateService:
         #     raise ServiceException(message='该学校、学历层次和专业的模板已存在')
 
         try:
-            template_dict = template_data.model_dump(exclude_none=True)
+            # 使用 by_alias=False 确保字段名是蛇形命名（file_path, file_name），而不是驼峰命名（filePath, fileName）
+            # 注意：Pydantic 的 alias_generator=to_camel 意味着：
+            # - 前端传递 filePath → Pydantic 自动映射到 file_path 字段
+            # - model_dump(by_alias=False) 输出 file_path（蛇形命名）
+            template_dict = template_data.model_dump(exclude_none=True, by_alias=False)
+            
+            print(f"[模板创建] Pydantic model_dump 后的数据:")
+            print(f"  template_dict keys: {list(template_dict.keys())}")
+            print(f"  file_path (from model): {template_dict.get('file_path')}")
+            print(f"  file_name (from model): {template_dict.get('file_name')}")
+            import sys
+            sys.stdout.flush()
             
             # 设置是否为官方模板
             if user_id:
@@ -95,10 +107,60 @@ class TemplateService:
             template_dict['usage_count'] = 0
             template_dict['status'] = '0'  # 启用
             
+            # 确保 file_path 和 file_name 字段存在
+            # 如果前端传递了 filePath/fileName（驼峰），Pydantic 应该已经映射到 file_path/file_name
+            # 但为了保险，我们显式检查并转换
+            if 'filePath' in template_dict and 'file_path' not in template_dict:
+                template_dict['file_path'] = template_dict.pop('filePath')
+                print(f"[模板创建] 已转换 filePath -> file_path: {template_dict.get('file_path')}")
+                sys.stdout.flush()
+            if 'fileName' in template_dict and 'file_name' not in template_dict:
+                template_dict['file_name'] = template_dict.pop('fileName')
+                print(f"[模板创建] 已转换 fileName -> file_name: {template_dict.get('file_name')}")
+                sys.stdout.flush()
+            
+            # 如果仍然没有 file_path 或 file_name，检查原始数据
+            if not template_dict.get('file_path') or not template_dict.get('file_name'):
+                # 尝试从原始 model 数据获取（可能使用了别名）
+                raw_dict = template_data.model_dump(exclude_none=True, by_alias=True)
+                print(f"[模板创建] 检查原始数据（by_alias=True）:")
+                print(f"  raw_dict keys: {list(raw_dict.keys())}")
+                print(f"  filePath: {raw_dict.get('filePath')}")
+                print(f"  fileName: {raw_dict.get('fileName')}")
+                sys.stdout.flush()
+                
+                if not template_dict.get('file_path') and raw_dict.get('filePath'):
+                    template_dict['file_path'] = raw_dict.get('filePath')
+                    print(f"[模板创建] 从原始数据获取 file_path: {template_dict.get('file_path')}")
+                    sys.stdout.flush()
+                if not template_dict.get('file_name') and raw_dict.get('fileName'):
+                    template_dict['file_name'] = raw_dict.get('fileName')
+                    print(f"[模板创建] 从原始数据获取 file_name: {template_dict.get('file_name')}")
+                    sys.stdout.flush()
+            
             # 如果提供了 file_path，验证文件是否存在并尝试解析格式数据
             file_path = template_dict.get('file_path')
+            
+            # 如果 file_path 为空，尝试从原始数据再次获取
+            if not file_path:
+                raw_dict = template_data.model_dump(exclude_none=True, by_alias=True)
+                file_path = raw_dict.get('filePath') or raw_dict.get('file_path')
+                if file_path:
+                    template_dict['file_path'] = file_path
+                    print(f"[模板创建] 从原始数据重新获取 file_path: {file_path}")
+                    logger.info(f"[模板创建] 从原始数据重新获取 file_path: {file_path}")
+                    import sys
+                    sys.stdout.flush()
+            
+            # 保存原始文件路径（用于数据库存储）
+            original_file_path = file_path
+            
             print(f"[模板创建] 开始处理模板创建")
-            print(f"  file_path: {file_path}")
+            print(f"  原始 file_path: {file_path}")
+            print(f"  file_path 类型: {type(file_path)}")
+            print(f"  file_path 是否为空: {not file_path}")
+            print(f"  file_name: {template_dict.get('file_name')}")
+            print(f"  file_size: {template_dict.get('file_size')}")
             print(f"  template_dict keys: {list(template_dict.keys())}")
             import sys
             sys.stdout.flush()
@@ -106,38 +168,56 @@ class TemplateService:
             if file_path:
                 import os
                 from config.env import UploadConfig
-                from utils.log_util import logger
+                from urllib.parse import urlparse
                 
-                # 将相对路径转换为实际文件系统路径
                 # 处理URL格式：http://127.0.0.1:9099/dev-api/profile/upload/... -> /profile/upload/...
                 if file_path.startswith('http://') or file_path.startswith('https://'):
                     # 提取URL中的路径部分
-                    from urllib.parse import urlparse
                     parsed_url = urlparse(file_path)
                     file_path = parsed_url.path
                     # 移除 /dev-api 前缀（如果存在）
                     if file_path.startswith('/dev-api'):
                         file_path = file_path.replace('/dev-api', '', 1)
+                    # 更新 template_dict 中的 file_path（保存清理后的URL路径）
+                    template_dict['file_path'] = file_path
+                    original_file_path = file_path
                 
-                # 如果 file_path 是 /profile/upload/... 格式，需要转换为实际路径
+                # 如果 file_name 为空，尝试从 file_path 提取文件名
+                if not template_dict.get('file_name'):
+                    # 从路径中提取文件名
+                    file_name = os.path.basename(file_path)
+                    # 移除可能的查询参数或URL片段
+                    if '?' in file_name:
+                        file_name = file_name.split('?')[0]
+                    template_dict['file_name'] = file_name
+                    print(f"[模板创建] 从路径提取文件名: {file_name}")
+                    sys.stdout.flush()
+                
+                # 转换为实际文件系统路径（用于文件操作）
                 print(f"[模板创建] 处理文件路径")
-                print(f"  原始路径: {file_path}")
+                print(f"  原始路径（URL）: {file_path}")
                 print(f"  UPLOAD_PREFIX: {UploadConfig.UPLOAD_PREFIX}")
                 print(f"  UPLOAD_PATH: {UploadConfig.UPLOAD_PATH}")
                 sys.stdout.flush()
                 
                 if file_path.startswith(UploadConfig.UPLOAD_PREFIX):
-                    # 将 /profile 替换为实际的上传目录
+                    # 将 /profile 替换为实际的上传目录（用于文件操作）
                     actual_file_path = file_path.replace(UploadConfig.UPLOAD_PREFIX, UploadConfig.UPLOAD_PATH)
                     # 处理路径分隔符（Windows/Linux兼容）
                     actual_file_path = os.path.normpath(actual_file_path)
-                    print(f"  转换后路径: {actual_file_path}")
+                    print(f"  实际文件系统路径: {actual_file_path}")
                 else:
                     # 如果已经是绝对路径或相对路径，直接使用
                     actual_file_path = file_path
                     print(f"  使用原始路径: {actual_file_path}")
                 
                 sys.stdout.flush()
+                
+                # 如果 file_size 为空，尝试从文件获取
+                if not template_dict.get('file_size') and os.path.exists(actual_file_path):
+                    template_dict['file_size'] = os.path.getsize(actual_file_path)
+                    print(f"[模板创建] 从文件获取大小: {template_dict['file_size']} 字节")
+                    sys.stdout.flush()
                 
                 # 检查文件是否存在
                 print(f"[模板创建] 检查文件是否存在: {actual_file_path}")
@@ -219,12 +299,75 @@ class TemplateService:
             # 移除临时字段
             pending_format_parse = template_dict.pop('_pending_format_parse', None)
             
+            # 确保 file_path 和 file_name 字段存在（用于数据库保存）
             print(f"[模板创建] 准备创建模板记录...")
+            print(f"  file_path: {template_dict.get('file_path')}")
+            print(f"  file_name: {template_dict.get('file_name')}")
+            print(f"  file_size: {template_dict.get('file_size')}")
             print(f"  pending_format_parse: {pending_format_parse}")
             print(f"  background_tasks是否为None: {background_tasks is None}")
             print(f"  template_dict准备保存的字段: {list(template_dict.keys())}")
+            print(f"  template_dict完整内容: {template_dict}")
             import sys
             sys.stdout.flush()
+            
+            # 验证必需字段 - 确保 file_path 和 file_name 都有值
+            # 如果 file_path 为空，尝试最后一次从原始数据获取
+            if not template_dict.get('file_path'):
+                print(f"[模板创建] ⚠ 警告: file_path 为空，尝试最后一次获取")
+                logger.warning(f"[模板创建] file_path 为空，尝试最后一次获取")
+                
+                # 尝试从原始 model 数据获取
+                raw_dict = template_data.model_dump(exclude_none=True, by_alias=True)
+                if raw_dict.get('filePath'):
+                    template_dict['file_path'] = raw_dict.get('filePath')
+                    print(f"[模板创建] ✓ 从原始数据最后一次获取 file_path: {template_dict.get('file_path')}")
+                    logger.info(f"[模板创建] 从原始数据最后一次获取 file_path: {template_dict.get('file_path')}")
+                else:
+                    print(f"[模板创建] ✗ 错误: 无法从任何来源获取 file_path")
+                    print(f"  原始数据 keys: {list(raw_dict.keys())}")
+                    print(f"  filePath 在原始数据中: {'filePath' in raw_dict}")
+                    logger.error(f"[模板创建] 无法从任何来源获取 file_path")
+                    logger.error(f"  原始数据 keys: {list(raw_dict.keys())}")
+                    logger.error(f"  filePath 在原始数据中: {'filePath' in raw_dict}")
+                    raise ServiceException(message='模板文件路径不能为空，请先上传模板文件')
+            else:
+                print(f"[模板创建] ✓ file_path 存在: {template_dict.get('file_path')}")
+            
+            if not template_dict.get('file_name'):
+                print(f"[模板创建] ⚠ 警告: file_name 为空，尝试从 file_path 提取")
+                logger.warning(f"[模板创建] file_name 为空，尝试从 file_path 提取")
+                if template_dict.get('file_path'):
+                    import os
+                    # 如果 file_name 仍然为空，从 file_path 提取
+                    file_name = os.path.basename(template_dict.get('file_path'))
+                    # 移除可能的查询参数或URL片段
+                    if '?' in file_name:
+                        file_name = file_name.split('?')[0]
+                    template_dict['file_name'] = file_name
+                    print(f"[模板创建] ✓ 已从file_path提取文件名: {file_name}")
+                    logger.info(f"[模板创建] 已从file_path提取文件名: {file_name}")
+                else:
+                    print(f"[模板创建] ✗ 错误: file_path 也为空，无法提取文件名")
+                    logger.error(f"[模板创建] file_path 也为空，无法提取文件名")
+                    raise ServiceException(message='模板文件名不能为空，请先上传模板文件')
+            else:
+                print(f"[模板创建] ✓ file_name 存在: {template_dict.get('file_name')}")
+            
+            # 最终确认要保存的字段
+            print("=" * 100)
+            print(f"[模板创建] 最终保存到数据库的字段:")
+            print(f"  file_path: {template_dict.get('file_path')}")
+            print(f"  file_name: {template_dict.get('file_name')}")
+            print(f"  file_size: {template_dict.get('file_size')}")
+            print("=" * 100)
+            sys.stdout.flush()
+            logger.info("=" * 100)
+            logger.info(f"[模板创建] 最终保存到数据库的字段:")
+            logger.info(f"  file_path: {template_dict.get('file_path')}")
+            logger.info(f"  file_name: {template_dict.get('file_name')}")
+            logger.info(f"  file_size: {template_dict.get('file_size')}")
+            logger.info("=" * 100)
             
             try:
                 new_template = await FormatTemplateDao.add_template(query_db, template_dict)
@@ -232,13 +375,40 @@ class TemplateService:
                 template_id = new_template.template_id
                 
                 print(f"[模板创建] 模板记录已创建，模板ID: {template_id}")
+                print(f"[模板创建] 验证保存的数据:")
+                print(f"  template_id: {new_template.template_id}")
+                print(f"  file_path: {new_template.file_path}")
+                print(f"  file_name: {new_template.file_name}")
+                print(f"  file_size: {new_template.file_size}")
                 sys.stdout.flush()
+                logger.info(f"[模板创建] 模板记录已创建，模板ID: {template_id}")
+                logger.info(f"[模板创建] 验证保存的数据:")
+                logger.info(f"  template_id: {new_template.template_id}")
+                logger.info(f"  file_path: {new_template.file_path}")
+                logger.info(f"  file_name: {new_template.file_name}")
+                logger.info(f"  file_size: {new_template.file_size}")
                 
                 await query_db.commit()
                 
                 print(f"[模板创建] ✓ 数据库提交成功，模板ID: {template_id}")
-                print(f"[模板创建] 模板已保存到数据库")
+                print(f"[模板创建] ✓ 模板已保存到数据库")
+                print(f"[模板创建] 最终验证（提交后）:")
+                # 重新查询验证
+                saved_template = await FormatTemplateDao.get_template_by_id(query_db, template_id)
+                if saved_template:
+                    print(f"  file_path: {saved_template.file_path}")
+                    print(f"  file_name: {saved_template.file_name}")
+                    print(f"  file_size: {saved_template.file_size}")
+                else:
+                    print(f"  ⚠ 警告: 提交后无法查询到模板记录")
                 sys.stdout.flush()
+                logger.info(f"[模板创建] ✓ 数据库提交成功，模板ID: {template_id}")
+                logger.info(f"[模板创建] ✓ 模板已保存到数据库")
+                if saved_template:
+                    logger.info(f"[模板创建] 最终验证（提交后）:")
+                    logger.info(f"  file_path: {saved_template.file_path}")
+                    logger.info(f"  file_name: {saved_template.file_name}")
+                    logger.info(f"  file_size: {saved_template.file_size}")
             except Exception as e:
                 print(f"[模板创建] ✗ 数据库操作失败: {str(e)}")
                 import traceback
@@ -589,7 +759,7 @@ class TemplateService:
         file_path: str
     ) -> None:
         """
-        后台任务：解析模板格式数据（现在改为同步执行以便调试）
+        后台任务：解析模板格式数据
         
         :param template_id: 模板ID
         :param file_path: 模板文件路径
@@ -598,10 +768,17 @@ class TemplateService:
         import traceback
         import asyncio
         import os
+        from datetime import datetime
+        import time
+        
+        # 记录任务开始时间
+        start_time = time.time()
+        start_datetime = datetime.now().strftime('%Y-%m-%d %H:%M:%S')
         
         # 立即输出，确保任务已启动
         print("=" * 100)
         print(f"[格式解析任务] ✓ 任务已开始执行")
+        print(f"  开始时间: {start_datetime}")
         print(f"  模板ID: {template_id}")
         print(f"  文件路径: {file_path}")
         print(f"  文件是否存在: {os.path.exists(file_path) if file_path else False}")
@@ -617,9 +794,12 @@ class TemplateService:
         
         logger.info("=" * 100)
         logger.info(f"[格式解析任务] 任务已开始执行")
+        logger.info(f"  开始时间: {start_datetime}")
         logger.info(f"  模板ID: {template_id}")
         logger.info(f"  文件路径: {file_path}")
         logger.info(f"  文件是否存在: {os.path.exists(file_path) if file_path else False}")
+        if file_path and os.path.exists(file_path):
+            logger.info(f"  文件大小: {os.path.getsize(file_path)} 字节")
         logger.info("=" * 100)
         
         try:
@@ -646,7 +826,8 @@ class TemplateService:
                     logger.info(f"  文件路径: {file_path}")
                     logger.info("=" * 100)
                     
-                    # 检查文件是否存在
+                    # 步骤1: 检查文件是否存在
+                    step1_start = time.time()
                     import os
                     if not os.path.exists(file_path):
                         error_msg = f"模板文件不存在: {file_path}"
@@ -654,12 +835,19 @@ class TemplateService:
                         logger.error(error_msg)
                         raise FileNotFoundError(error_msg)
                     file_size = os.path.getsize(file_path)
-                    print(f"[步骤1/4] 文件存在检查通过，文件大小: {file_size} 字节")
-                    logger.info(f"[步骤1/4] 文件存在检查通过，文件大小: {file_size} 字节")
+                    step1_elapsed = time.time() - step1_start
+                    print(f"[步骤1/4] ✓ 文件存在检查通过")
+                    print(f"  文件大小: {file_size} 字节 ({file_size / 1024:.2f} KB)")
+                    print(f"  耗时: {step1_elapsed:.2f} 秒")
+                    logger.info(f"[步骤1/4] ✓ 文件存在检查通过")
+                    logger.info(f"  文件大小: {file_size} 字节 ({file_size / 1024:.2f} KB)")
+                    logger.info(f"  耗时: {step1_elapsed:.2f} 秒")
                     
-                    # 读取Word文档并提取格式指令
+                    # 步骤2: 读取Word文档并提取格式指令
+                    step2_start = time.time()
                     print("=" * 100)
                     print(f"[步骤2/4] 开始读取Word文档并提取格式信息...")
+                    print(f"  开始时间: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}")
                     print(f"  文件路径: {file_path}")
                     print(f"  即将调用AI模型分析文档格式...")
                     print("=" * 100)
@@ -667,6 +855,7 @@ class TemplateService:
                     sys.stdout.flush()
                     logger.info("=" * 100)
                     logger.info(f"[步骤2/4] 开始读取Word文档并提取格式信息...")
+                    logger.info(f"  开始时间: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}")
                     logger.info(f"  文件路径: {file_path}")
                     logger.info("=" * 100)
                     
@@ -674,14 +863,19 @@ class TemplateService:
                         read_result = await FormatService.read_word_document_with_ai(db, file_path)
                         format_instructions = read_result.get('format_instructions', '')
                         natural_language_description = read_result.get('natural_language_description', '')
+                        step2_elapsed = time.time() - step2_start
                         print("=" * 100)
                         print(f"[步骤2/4] ✓ Word文档读取和AI分析完成")
+                        print(f"  完成时间: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}")
+                        print(f"  耗时: {step2_elapsed:.2f} 秒 ({step2_elapsed / 60:.2f} 分钟)")
                         print(f"  自然语言描述长度: {len(natural_language_description)} 字符")
                         print(f"  JSON格式指令长度: {len(format_instructions)} 字符")
                         print("=" * 100)
                         sys.stdout.flush()
                         logger.info("=" * 100)
                         logger.info(f"[步骤2/4] ✓ Word文档读取和AI分析完成")
+                        logger.info(f"  完成时间: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}")
+                        logger.info(f"  耗时: {step2_elapsed:.2f} 秒 ({step2_elapsed / 60:.2f} 分钟)")
                         logger.info(f"  自然语言描述长度: {len(natural_language_description)} 字符")
                         logger.info(f"  JSON格式指令长度: {len(format_instructions)} 字符")
                         logger.info("=" * 100)
@@ -710,15 +904,23 @@ class TemplateService:
                     logger.info(f"  JSON格式指令长度: {len(format_instructions)} 字符")
                     logger.debug(f"  JSON格式指令内容（前500字符）: {format_instructions[:500]}")
                     
-                    # 尝试解析为JSON格式
+                    # 步骤3: 尝试解析为JSON格式
+                    step3_start = time.time()
                     import json
                     print(f"[步骤3/4] 开始解析格式指令为JSON...")
+                    print(f"  开始时间: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}")
                     logger.info(f"[步骤3/4] 开始解析格式指令为JSON...")
+                    logger.info(f"  开始时间: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}")
                     try:
                         format_data = json.loads(format_instructions) if isinstance(format_instructions, str) else format_instructions
-                        print(f"[步骤3/4] JSON解析成功")
+                        step3_elapsed = time.time() - step3_start
+                        print(f"[步骤3/4] ✓ JSON解析成功")
+                        print(f"  完成时间: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}")
+                        print(f"  耗时: {step3_elapsed:.2f} 秒")
                         print(f"  格式指令类型: {type(format_data).__name__}")
-                        logger.info(f"[步骤3/4] JSON解析成功")
+                        logger.info(f"[步骤3/4] ✓ JSON解析成功")
+                        logger.info(f"  完成时间: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}")
+                        logger.info(f"  耗时: {step3_elapsed:.2f} 秒")
                         logger.info(f"  格式指令类型: {type(format_data).__name__}")
                         if isinstance(format_data, dict):
                             keys = list(format_data.keys())
@@ -745,14 +947,37 @@ class TemplateService:
                             print(f"  提取的格式指令包含的键: {keys}")
                             logger.info(f"  提取的格式指令包含的键: {keys}")
                     
+                    # 步骤4: 保存格式数据到数据库
+                    step4_start = time.time()
                     # 将format_data转换为JSON字符串以便存储
                     format_data_json_str = json.dumps(format_data, ensure_ascii=False, indent=2)
                     print(f"[步骤4/4] 准备保存格式数据到数据库...")
+                    print(f"  开始时间: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}")
                     print(f"  格式数据JSON字符串长度: {len(format_data_json_str)} 字符")
+                    print(f"  模板ID: {template_id}")
                     logger.info(f"[步骤4/4] 准备保存格式数据到数据库...")
+                    logger.info(f"  开始时间: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}")
                     logger.info(f"  格式数据JSON字符串长度: {len(format_data_json_str)} 字符")
+                    logger.info(f"  模板ID: {template_id}")
+                    
+                    # 查询更新前的状态
+                    template_before = await FormatTemplateDao.get_template_by_id(db, template_id)
+                    format_data_before = template_before.format_data if template_before else None
+                    print(f"  更新前 format_data 状态: {'存在' if format_data_before else '不存在'}")
+                    if format_data_before:
+                        print(f"  更新前 format_data 类型: {type(format_data_before).__name__}")
+                        if isinstance(format_data_before, dict):
+                            print(f"  更新前 format_data 键数量: {len(format_data_before)}")
+                    logger.info(f"  更新前 format_data 状态: {'存在' if format_data_before else '不存在'}")
+                    if format_data_before:
+                        logger.info(f"  更新前 format_data 类型: {type(format_data_before).__name__}")
+                        if isinstance(format_data_before, dict):
+                            logger.info(f"  更新前 format_data 键数量: {len(format_data_before)}")
                     
                     # 更新模板的 format_data
+                    print(f"  正在执行数据库更新操作...")
+                    logger.info(f"  正在执行数据库更新操作...")
+                    update_start = time.time()
                     await FormatTemplateDao.update_template(
                         db,
                         {
@@ -760,25 +985,68 @@ class TemplateService:
                             'format_data': format_data
                         }
                     )
-                    await db.commit()
+                    update_elapsed = time.time() - update_start
+                    print(f"  数据库更新操作完成，耗时: {update_elapsed:.2f} 秒")
+                    logger.info(f"  数据库更新操作完成，耗时: {update_elapsed:.2f} 秒")
                     
-                    print("=" * 80)
-                    print(f"[后台任务] 成功解析模板格式 - 模板ID: {template_id}")
+                    print(f"  正在提交事务...")
+                    logger.info(f"  正在提交事务...")
+                    commit_start = time.time()
+                    await db.commit()
+                    commit_elapsed = time.time() - commit_start
+                    print(f"  事务提交完成，耗时: {commit_elapsed:.2f} 秒")
+                    logger.info(f"  事务提交完成，耗时: {commit_elapsed:.2f} 秒")
+                    
+                    # 验证更新后的状态
+                    template_after = await FormatTemplateDao.get_template_by_id(db, template_id)
+                    format_data_after = template_after.format_data if template_after else None
+                    print(f"  更新后 format_data 状态: {'存在' if format_data_after else '不存在'}")
+                    if format_data_after:
+                        print(f"  更新后 format_data 类型: {type(format_data_after).__name__}")
+                        if isinstance(format_data_after, dict):
+                            print(f"  更新后 format_data 键数量: {len(format_data_after)}")
+                            print(f"  更新后 format_data 键: {list(format_data_after.keys())[:10]}...")
+                    logger.info(f"  更新后 format_data 状态: {'存在' if format_data_after else '不存在'}")
+                    if format_data_after:
+                        logger.info(f"  更新后 format_data 类型: {type(format_data_after).__name__}")
+                        if isinstance(format_data_after, dict):
+                            logger.info(f"  更新后 format_data 键数量: {len(format_data_after)}")
+                            logger.info(f"  更新后 format_data 键: {list(format_data_after.keys())[:10]}...")
+                    
+                    step4_elapsed = time.time() - step4_start
+                    total_elapsed = time.time() - start_time
+                    
+                    print("=" * 100)
+                    print(f"[后台任务] ✓ 成功解析模板格式")
+                    print(f"  模板ID: {template_id}")
+                    print(f"  完成时间: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}")
+                    print(f"  总耗时: {total_elapsed:.2f} 秒 ({total_elapsed / 60:.2f} 分钟)")
+                    print(f"  步骤4耗时: {step4_elapsed:.2f} 秒")
                     print(f"  格式数据已保存到数据库")
                     print(f"  格式数据大小: {len(format_data_json_str)} 字符")
-                    print("=" * 80)
-                    logger.info("=" * 80)
-                    logger.info(f"[后台任务] 成功解析模板格式 - 模板ID: {template_id}")
+                    print(f"  格式数据更新: {'成功' if format_data_after else '失败（未找到数据）'}")
+                    print("=" * 100)
+                    sys.stdout.flush()
+                    logger.info("=" * 100)
+                    logger.info(f"[后台任务] ✓ 成功解析模板格式")
+                    logger.info(f"  模板ID: {template_id}")
+                    logger.info(f"  完成时间: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}")
+                    logger.info(f"  总耗时: {total_elapsed:.2f} 秒 ({total_elapsed / 60:.2f} 分钟)")
+                    logger.info(f"  步骤4耗时: {step4_elapsed:.2f} 秒")
                     logger.info(f"  格式数据已保存到数据库")
                     logger.info(f"  格式数据大小: {len(format_data_json_str)} 字符")
-                    logger.info("=" * 80)
+                    logger.info(f"  格式数据更新: {'成功' if format_data_after else '失败（未找到数据）'}")
+                    logger.info("=" * 100)
                 except ServiceException as e:
                     await db.rollback()
+                    total_elapsed = time.time() - start_time
                     # ServiceException 有 message 属性
                     error_msg = e.message if hasattr(e, 'message') and e.message else (str(e) if str(e) else repr(e))
                     error_type = type(e).__name__
                     print("=" * 100)
                     print(f"[后台任务] ✗ 解析模板格式失败 (ServiceException)")
+                    print(f"  失败时间: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}")
+                    print(f"  总耗时: {total_elapsed:.2f} 秒 ({total_elapsed / 60:.2f} 分钟)")
                     print(f"  模板ID: {template_id}")
                     print(f"  错误类型: {error_type}")
                     print(f"  错误信息: {error_msg}")
@@ -790,6 +1058,8 @@ class TemplateService:
                     sys.stdout.flush()
                     logger.error("=" * 100)
                     logger.error(f"[后台任务] ✗ 解析模板格式失败 (ServiceException)")
+                    logger.error(f"  失败时间: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}")
+                    logger.error(f"  总耗时: {total_elapsed:.2f} 秒 ({total_elapsed / 60:.2f} 分钟)")
                     logger.error(f"  模板ID: {template_id}")
                     logger.error(f"  错误类型: {error_type}")
                     logger.error(f"  错误信息: {error_msg}")
@@ -798,11 +1068,14 @@ class TemplateService:
                     logger.error("=" * 100, exc_info=True)
                 except Exception as e:
                     await db.rollback()
+                    total_elapsed = time.time() - start_time
                     # 获取完整的错误信息
                     error_msg = str(e) if str(e) else repr(e)
                     error_type = type(e).__name__
                     print("=" * 100)
                     print(f"[后台任务] ✗ 解析模板格式失败 ({error_type})")
+                    print(f"  失败时间: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}")
+                    print(f"  总耗时: {total_elapsed:.2f} 秒 ({total_elapsed / 60:.2f} 分钟)")
                     print(f"  模板ID: {template_id}")
                     print(f"  错误类型: {error_type}")
                     print(f"  错误信息: {error_msg}")
@@ -812,24 +1085,32 @@ class TemplateService:
                     sys.stdout.flush()
                     logger.error("=" * 100)
                     logger.error(f"[后台任务] ✗ 解析模板格式失败 ({error_type})")
+                    logger.error(f"  失败时间: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}")
+                    logger.error(f"  总耗时: {total_elapsed:.2f} 秒 ({total_elapsed / 60:.2f} 分钟)")
                     logger.error(f"  模板ID: {template_id}")
                     logger.error(f"  错误类型: {error_type}")
                     logger.error(f"  错误信息: {error_msg}")
                     logger.error("=" * 100, exc_info=True)
         except Exception as e:
+            total_elapsed = time.time() - start_time
             error_msg = str(e)
             error_type = type(e).__name__
-            print("=" * 80)
-            print(f"[后台任务] 执行失败")
+            print("=" * 100)
+            print(f"[后台任务] ✗ 执行失败")
+            print(f"  失败时间: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}")
+            print(f"  总耗时: {total_elapsed:.2f} 秒 ({total_elapsed / 60:.2f} 分钟)")
             print(f"  模板ID: {template_id}")
             print(f"  错误信息: {error_msg}")
             print(f"  错误类型: {error_type}")
-            print("=" * 80)
+            print("=" * 100)
             import traceback
             print(traceback.format_exc())
-            logger.error("=" * 80)
-            logger.error(f"[后台任务] 执行失败")
+            sys.stdout.flush()
+            logger.error("=" * 100)
+            logger.error(f"[后台任务] ✗ 执行失败")
+            logger.error(f"  失败时间: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}")
+            logger.error(f"  总耗时: {total_elapsed:.2f} 秒 ({total_elapsed / 60:.2f} 分钟)")
             logger.error(f"  模板ID: {template_id}")
             logger.error(f"  错误信息: {error_msg}")
             logger.error(f"  错误类型: {error_type}")
-            logger.error("=" * 80, exc_info=True)
+            logger.error("=" * 100, exc_info=True)

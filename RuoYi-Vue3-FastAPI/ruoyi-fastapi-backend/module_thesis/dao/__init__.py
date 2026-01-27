@@ -9,7 +9,7 @@ from module_thesis.dao.member_dao import (
     UserMembershipDao,
 )
 from module_thesis.dao.order_dao import ExportRecordDao, FeatureServiceDao, OrderDao
-from module_thesis.dao.template_dao import FormatTemplateDao, TemplateFormatRuleDao
+from module_thesis.dao.template_dao import FormatTemplateDao, TemplateFormatRuleDao, UniversalInstructionSystemDao
 from module_thesis.dao.thesis_dao import ThesisChapterDao, ThesisDao, ThesisOutlineDao, ThesisVersionDao
 
 __all__ = [
@@ -28,6 +28,7 @@ __all__ = [
     # 模板相关DAO
     'FormatTemplateDao',
     'TemplateFormatRuleDao',
+    'UniversalInstructionSystemDao',
     # 订单相关DAO
     'OrderDao',
     'FeatureServiceDao',

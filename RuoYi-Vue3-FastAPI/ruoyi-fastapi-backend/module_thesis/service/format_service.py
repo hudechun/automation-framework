@@ -4,6 +4,8 @@
 import json
 import os
 import tempfile
+import time
+from datetime import datetime
 from pathlib import Path
 from typing import Dict, Any, Optional, TYPE_CHECKING
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -95,19 +97,40 @@ class FormatService:
         
         try:
             print(f"[读取Word文档] 开始处理文件: {word_file_path}")
+            print(f"  开始时间: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}")
             logger.info(f"[读取Word文档] 开始处理文件: {word_file_path}")
+            logger.info(f"  开始时间: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}")
             
             # 读取Word文档并提取文本内容
+            print("=" * 100)
             print(f"[读取Word文档] 步骤1/2: 打开Word文档并提取文本内容...")
+            print(f"  开始时间: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}")
+            print(f"  文件路径: {word_file_path}")
+            logger.info("=" * 100)
             logger.info(f"[读取Word文档] 步骤1/2: 打开Word文档并提取文本内容...")
+            logger.info(f"  开始时间: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}")
+            logger.info(f"  文件路径: {word_file_path}")
+            
+            print(f"  正在打开Word文档...")
+            logger.info(f"  正在打开Word文档...")
             doc = Document(word_file_path)
             para_count = len(doc.paragraphs)
+            print(f"  ✓ Word文档打开成功，段落数: {para_count}")
+            logger.info(f"  ✓ Word文档打开成功，段落数: {para_count}")
             
+            print(f"  正在提取文档文本内容（保留所有段落，包括空行）...")
+            logger.info(f"  正在提取文档文本内容（保留所有段落，包括空行）...")
             # 提取文档文本内容（保留所有段落，包括空行）
             document_text = cls._extract_document_text(doc)
             text_length = len(document_text)
-            print(f"[读取Word文档] 步骤1/2: Word文档打开成功，段落数: {para_count}，文本长度: {text_length} 字符")
-            logger.info(f"[读取Word文档] 步骤1/2: Word文档打开成功，段落数: {para_count}，文本长度: {text_length} 字符")
+            print(f"  ✓ 文本提取完成")
+            print(f"  段落数: {para_count}")
+            print(f"  文本长度: {text_length} 字符 ({text_length / 1024:.2f} KB)")
+            print(f"  完成时间: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}")
+            logger.info(f"  ✓ 文本提取完成")
+            logger.info(f"  段落数: {para_count}")
+            logger.info(f"  文本长度: {text_length} 字符 ({text_length / 1024:.2f} KB)")
+            logger.info(f"  完成时间: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}")
             
             # 输出提取的文档文本内容（用于调试，显示前1000字符）
             preview_length = min(1000, text_length)
@@ -128,30 +151,42 @@ class FormatService:
             # 直接将文档文本传给AI，让AI分析并生成格式化指令
             print("=" * 100)
             print(f"[读取Word文档] 步骤2/2: 将文档传给AI分析并生成格式化指令...")
-            print("  即将调用AI模型，这可能需要一些时间...")
+            print(f"  开始时间: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}")
+            print(f"  文档文本长度: {text_length} 字符")
+            print(f"  即将调用AI模型，这可能需要一些时间（通常30-120秒）...")
             print("=" * 100)
             import sys
             sys.stdout.flush()
             logger.info("=" * 100)
             logger.info(f"[读取Word文档] 步骤2/2: 将文档传给AI分析并生成格式化指令...")
+            logger.info(f"  开始时间: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}")
+            logger.info(f"  文档文本长度: {text_length} 字符")
             logger.info("=" * 100)
             
             try:
+                print(f"[读取Word文档] 正在调用AI分析服务...")
+                logger.info(f"[读取Word文档] 正在调用AI分析服务...")
+                ai_start_time = time.time()
                 format_result = await cls._analyze_format_with_ai(
                     query_db,
                     document_text,
                     config_id
                 )
+                ai_elapsed = time.time() - ai_start_time
                 format_instructions = format_result['json_instructions']
                 natural_language_description = format_result['natural_language_description']
                 print("=" * 100)
                 print(f"[读取Word文档] ✓ 步骤2/2: AI分析完成")
+                print(f"  完成时间: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}")
+                print(f"  耗时: {ai_elapsed:.2f} 秒 ({ai_elapsed / 60:.2f} 分钟)")
                 print(f"  自然语言描述长度: {len(natural_language_description)} 字符")
                 print(f"  JSON格式指令长度: {len(format_instructions)} 字符")
                 print("=" * 100)
                 sys.stdout.flush()
                 logger.info("=" * 100)
                 logger.info(f"[读取Word文档] ✓ 步骤2/2: AI分析完成")
+                logger.info(f"  完成时间: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}")
+                logger.info(f"  耗时: {ai_elapsed:.2f} 秒 ({ai_elapsed / 60:.2f} 分钟)")
                 logger.info(f"  自然语言描述长度: {len(natural_language_description)} 字符")
                 logger.info(f"  JSON格式指令长度: {len(format_instructions)} 字符")
                 logger.info("=" * 100)
@@ -2288,7 +2323,15 @@ class FormatService:
             logger.info("[AI格式分析] ✓ 检测到文档中包含'空行'相关文字说明")
         
         # 获取AI提供商
+        print(f"[AI格式分析] 正在获取AI模型配置...")
+        logger.info(f"[AI格式分析] 正在获取AI模型配置...")
         llm_provider, model_config = await AiGenerationService._get_ai_provider(query_db, config_id)
+        print(f"[AI格式分析] ✓ AI模型配置获取完成")
+        print(f"  AI模型: {model_config.model_name if model_config and hasattr(model_config, 'model_name') else 'N/A'}")
+        print(f"  配置ID: {config_id or '使用默认配置'}")
+        logger.info(f"[AI格式分析] ✓ AI模型配置获取完成")
+        logger.info(f"  AI模型: {model_config.model_name if model_config and hasattr(model_config, 'model_name') else 'N/A'}")
+        logger.info(f"  配置ID: {config_id or '使用默认配置'}")
         
         messages = [
             {
@@ -2298,12 +2341,48 @@ class FormatService:
             {"role": "user", "content": prompt}
         ]
         
+        print("=" * 100)
+        print(f"[AI格式分析] 📤 正在发送请求给AI模型...")
+        print(f"  开始时间: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}")
+        print(f"  提示词长度: {len(prompt)} 字符")
+        print(f"  超时设置: 120秒")
+        print("=" * 100)
+        import sys
+        sys.stdout.flush()
+        logger.info("=" * 100)
+        logger.info(f"[AI格式分析] 📤 正在发送请求给AI模型...")
+        logger.info(f"  开始时间: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}")
+        logger.info(f"  提示词长度: {len(prompt)} 字符")
+        logger.info(f"  超时设置: 120秒")
+        logger.info("=" * 100)
+        
         try:
             import asyncio
+            ai_call_start = time.time()
             response = await asyncio.wait_for(
                 llm_provider.chat(messages, temperature=0.3, max_tokens=4000),
                 timeout=120.0
             )
+            ai_call_elapsed = time.time() - ai_call_start
+            print("=" * 100)
+            print(f"[AI格式分析] ✓ AI模型响应接收完成")
+            print(f"  完成时间: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}")
+            print(f"  耗时: {ai_call_elapsed:.2f} 秒 ({ai_call_elapsed / 60:.2f} 分钟)")
+            print(f"  响应类型: {type(response).__name__}")
+            if hasattr(response, 'content'):
+                response_length = len(str(response.content)) if response.content else 0
+                print(f"  响应内容长度: {response_length} 字符")
+            print("=" * 100)
+            sys.stdout.flush()
+            logger.info("=" * 100)
+            logger.info(f"[AI格式分析] ✓ AI模型响应接收完成")
+            logger.info(f"  完成时间: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}")
+            logger.info(f"  耗时: {ai_call_elapsed:.2f} 秒 ({ai_call_elapsed / 60:.2f} 分钟)")
+            logger.info(f"  响应类型: {type(response).__name__}")
+            if hasattr(response, 'content'):
+                response_length = len(str(response.content)) if response.content else 0
+                logger.info(f"  响应内容长度: {response_length} 字符")
+            logger.info("=" * 100)
             
             # 解析AI响应
             result = cls._parse_ai_format_response(response)

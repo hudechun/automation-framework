@@ -1,228 +1,301 @@
-# 格式化指令系统重新设计 - 实现总结
+# 用户建议的指令系统流程实现总结
 
 ## 一、实现完成情况
 
-### ✅ 1. 通用指令格式设计
-- **状态**：已完成
-- **说明**：设计了完整的通用指令格式，包含所有格式属性
-- **位置**：`format_service.py` 中的 `_build_format_analysis_prompt()` 方法
+### ✅ 已完成的功能
 
-### ✅ 2. 学校指令保存机制
-- **状态**：已完成
-- **说明**：每个学校上传格式文档时，AI生成指令并保存到模板表的`format_data`字段
-- **位置**：`template_service.py` 中的 `create_template()` 方法
+1. **完整指令系统设计** ✅
+   - 创建了 `universal_instruction_system.json` 文件
+   - 包含所有可能的格式要求（字体、段落、标题、表格、图片、页眉页脚、列表、公式、脚注、封面等）
+   - 每个字段都有明确的类型、范围、默认值定义
 
-### ✅ 3. AI生成自然语言和指令
-- **状态**：已完成（方案B）
-- **说明**：上传格式文件时，AI同时生成自然语言描述和JSON格式指令
-- **位置**：`format_service.py` 中的 `_analyze_format_with_ai()` 方法
+2. **数据库表创建** ✅
+   - 在 `template_do.py` 中添加了 `UniversalInstructionSystem` 实体类
+   - 在 `template_dao.py` 中添加了 `UniversalInstructionSystemDao` 类
+   - 支持版本管理和激活状态
 
-### ✅ 4. 目录生成功能
-- **状态**：已完成
-- **说明**：实现了自动生成目录功能，支持自动生成和手动创建两种方式
-- **位置**：`format_service.py` 中的 `_generate_table_of_contents()` 方法
+3. **初始化脚本** ✅
+   - 创建了 `scripts/init_universal_instruction_system.py`
+   - 可以将JSON文件中的完整指令系统插入到数据库
 
-## 二、目录生成功能详细说明
+4. **AI生成流程（内部两步，对外一步）** ✅
+   - 实现了 `_get_universal_instruction_system()` 方法
+   - 实现了 `_generate_natural_language_format_requirement()` 方法（第一步）
+   - 实现了 `_generate_subset_instruction_system()` 方法（第二步）
+   - 修改了 `_analyze_format_with_ai()` 方法，整合内部两步生成流程
 
-### 2.1 功能特点
+5. **校验逻辑** ✅
+   - 实现了 `_validate_format_specification()` 方法（格式规范校验）
+   - 实现了 `_validate_consistency()` 方法（一致性校验）
+   - 实现了 `_validate_instruction_system()` 方法（整合三种校验方式）
+   - 修改了 `read_word_document_with_ai()` 方法，在保存前调用校验
 
-1. **自动生成目录**
-   - 当格式指令中 `application_rules.auto_generate_toc = true` 时自动触发
-   - 自动扫描所有章节，提取标题和级别
-   - 根据格式指令中的目录格式配置生成目录
+---
 
-2. **目录格式应用**
-   - 从格式指令的 `special_sections.table_of_contents` 中读取格式
-   - 支持目录标题格式（字体、字号、对齐、前后间距）
-   - 支持多级目录条目格式（不同级别的缩进、字体、字号）
+## 二、实现细节
 
-3. **目录生成规则**
-   - 可配置包含的目录级别（`include_levels`）
-   - 可配置排除的章节（`exclude_sections`）
-   - 支持页码格式配置（`page_number_format`）
+### 2.1 完整指令系统JSON结构
 
-### 2.2 实现方法
+**文件**：`module_thesis/config/universal_instruction_system.json`
 
-#### 方法1：`_generate_table_of_contents()`
-- **功能**：自动生成目录章节对象
-- **参数**：
-  - `chapters`: 章节列表
-  - `format_config`: 格式配置
-  - `layout_rules`: 布局规则
-- **返回**：目录章节对象（包含标题和条目列表）
+**包含的格式规则**：
+- 基础格式：default_font, english_font, page
+- 标题格式：headings (h1, h2, h3)
+- 段落格式：paragraph
+- 表格格式：table
+- 图片格式：figure
+- 页眉页脚：header_footer
+- 列表格式：list
+- 公式格式：equation
+- 脚注格式：footnote
+- 封面格式：cover
+- 特殊章节：special_sections
 
-#### 方法2：在 `_create_formatted_document()` 中集成
-- **位置**：在步骤5/6之前（第1602-1625行）
-- **逻辑**：
-  1. 检查是否需要生成目录
-  2. 检查是否已有目录章节
-  3. 如果需要且没有，则自动生成
-  4. 将目录插入到第一个位置（摘要之前）
+**每个字段的定义**：
+- `type`: 字段类型（string/number/boolean）
+- `allowed_values`: 允许的值列表（如果是枚举）
+- `range`: 取值范围（如果是数字）
+- `default`: 默认值
+- `description`: 字段描述
 
-#### 方法3：目录内容生成
-- **位置**：在章节内容处理逻辑中（第1719-1742行）
-- **逻辑**：
-  1. 识别为目录章节
-  2. 如果是自动生成的目录，生成目录内容
-  3. 根据级别添加缩进
-  4. 生成格式化的目录行
+---
 
-### 2.3 使用方式
+### 2.2 数据库表结构
 
-#### 方式1：自动生成目录（推荐）
+**表名**：`universal_instruction_system`
 
-在格式指令中设置：
-```json
-{
-  "application_rules": {
-    "auto_generate_toc": true,
-    "toc_generation_rules": {
-      "include_levels": [1, 2, 3],
-      "exclude_sections": ["摘要", "关键词", "目录"],
-      "page_number_format": "arabic"
-    }
-  }
-}
-```
+**字段**：
+- `id`: 主键
+- `version`: 版本号
+- `description`: 描述
+- `instruction_data`: 指令数据（JSON格式）
+- `is_active`: 是否激活（0否 1是）
+- `create_by`, `create_time`, `update_by`, `update_time`, `remark`: 标准字段
 
-格式化论文时，系统会自动：
-1. 检测是否需要生成目录
-2. 扫描所有章节
-3. 生成目录章节
-4. 插入到文档开头
+---
 
-#### 方式2：手动创建目录章节
+### 2.3 AI生成流程
 
-1. 用户在论文大纲中手动创建"目录"章节
-2. 系统识别该章节为目录章节
-3. 应用目录格式（从格式指令中读取）
-4. 用户可以在目录章节中手动填写目录内容
+**内部流程**：
+1. 读取完整指令系统（从数据库）
+2. 第一步：AI生成自然语言的格式要求
+3. 第二步：AI根据自然语言和完整指令系统，生成子集指令系统
 
-## 三、指令格式结构
+**对外**：一步完成，返回自然语言描述和JSON指令
 
-### 3.1 完整结构
+**回退机制**：如果没有完整指令系统，回退到原有的生成方法
 
-```json
-{
-  "version": "1.0",
-  "description": "学校名称+学位级别+专业格式化指令",
-  "instruction_type": "format_application",
-  "format_rules": {
-    "default_font": {...},
-    "english_font": {...},
-    "page": {...},
-    "headings": {...},
-    "paragraph": {...},
-    "special_sections": {
-      "title": {...},
-      "abstract": {...},
-      "keywords": {...},
-      "conclusion": {...},
-      "references": {...},
-      "acknowledgement": {...},
-      "table_of_contents": {
-        "title_text": "目 录",
-        "title_font": "黑体",
-        "title_size_pt": 15,
-        "title_alignment": "center",
-        "title_spacing_before_pt": 24,
-        "title_spacing_after_pt": 24,
-        "entry_levels": [1, 2, 3]
-      }
-    },
-    "application_rules": {
-      "heading_detection": "...",
-      "special_section_detection": [...],
-      "auto_generate_toc": true/false,
-      "toc_generation_rules": {
-        "include_levels": [1, 2, 3],
-        "exclude_sections": ["摘要", "关键词", "目录"],
-        "page_number_format": "arabic"
-      },
-      "font_fallback": {...}
-    }
-  }
-}
-```
+---
 
-### 3.2 关键字段说明
+### 2.4 校验逻辑
 
-- **`auto_generate_toc`**：是否自动生成目录
-- **`toc_generation_rules.include_levels`**：包含的目录级别
-- **`toc_generation_rules.exclude_sections`**：排除的章节
-- **`table_of_contents.title_spacing_before_pt`**：目录标题前间距
-- **`table_of_contents.title_spacing_after_pt`**：目录标题后间距
+**三种校验方式**：
 
-## 四、工作流程
+1. **格式规范校验**：
+   - 检查JSON结构是否符合规范
+   - 检查字段是否在完整指令系统中定义
+   - 检查字段值是否在允许的范围内
+   - 检查必填字段是否存在
 
-### 4.1 上传格式文件流程
+2. **一致性校验**：
+   - 检查自然语言中提到的格式要求是否在子集指令系统中
+   - 检查子集指令系统中的配置是否在自然语言中有描述
+   - 检查关键格式（如字体大小）是否一致
 
-1. **上传格式文件**：学校管理员上传格式模板文档（.docx）
-2. **AI分析格式**：调用AI分析文档格式，提取所有格式信息
-3. **生成指令**：AI生成JSON格式指令和自然语言描述
-4. **保存到数据库**：
-   - `format_data`字段：保存完整的JSON格式指令
-   - `remark`字段（可选）：保存自然语言描述
-5. **模板关联**：每个模板（学校+专业+学位级别）有独立的指令
+3. **数据质量校验**：
+   - 复用现有的 `_validate_and_fix_format_config()` 方法
+   - 检查异常值并自动修正
 
-### 4.2 格式化论文流程
+---
 
-1. **读取格式指令**：从模板的`format_data`字段读取指令
-2. **解析格式配置**：解析JSON格式指令，提取格式配置和布局规则
-3. **检查目录生成**：
-   - 检查格式指令中是否设置了`auto_generate_toc`
-   - 检查文档中是否已有目录章节
-   - 如果需要且没有，则自动生成目录
-4. **应用格式**：根据格式指令应用所有格式
-5. **生成文档**：生成格式化的Word文档
+## 三、文件修改清单
 
-## 五、测试建议
+### 3.1 新建文件
 
-### 5.1 测试场景
+1. ✅ `module_thesis/config/universal_instruction_system.json` - 完整指令系统JSON文件
+2. ✅ `module_thesis/scripts/init_universal_instruction_system.py` - 初始化脚本
 
-1. **自动生成目录**
-   - 测试格式指令中`auto_generate_toc=true`的情况
-   - 验证目录是否正确生成
-   - 验证目录格式是否正确应用
+### 3.2 修改文件
 
-2. **手动创建目录**
-   - 测试用户手动创建目录章节的情况
-   - 验证目录格式是否正确应用
+1. ✅ `module_thesis/entity/do/template_do.py`
+   - 添加了 `UniversalInstructionSystem` 实体类
 
-3. **目录格式应用**
-   - 测试不同学校的目录格式
-   - 验证目录标题前后空行是否正确
-   - 验证多级目录格式是否正确
+2. ✅ `module_thesis/dao/template_dao.py`
+   - 添加了 `UniversalInstructionSystemDao` 类
+   - 实现了 `get_active_instruction_system()`, `get_instruction_system_by_version()`, `add_instruction_system()`, `update_instruction_system()`, `deactivate_all()` 方法
 
-4. **目录生成规则**
-   - 测试不同的`include_levels`配置
-   - 测试不同的`exclude_sections`配置
-   - 验证目录条目是否正确过滤
+3. ✅ `module_thesis/dao/__init__.py`
+   - 导出了 `UniversalInstructionSystemDao`
 
-### 5.2 测试数据
+4. ✅ `module_thesis/service/format_service.py`
+   - 添加了 `_get_universal_instruction_system()` 方法
+   - 添加了 `_generate_natural_language_format_requirement()` 方法
+   - 添加了 `_generate_subset_instruction_system()` 方法
+   - 修改了 `_analyze_format_with_ai()` 方法
+   - 添加了 `_validate_format_specification()` 方法
+   - 添加了 `_validate_consistency()` 方法
+   - 添加了 `_validate_instruction_system()` 方法
+   - 修改了 `read_word_document_with_ai()` 方法（添加校验调用）
+   - 添加了 `_analyze_format_with_ai_legacy()` 方法（回退方案）
 
-建议使用不同学校的格式模板进行测试：
-- 中南林业科技大学
-- 其他学校的格式模板
+---
+
+## 四、使用说明
+
+### 4.1 初始化完整指令系统
+
+**步骤**：
+1. 确保 `universal_instruction_system.json` 文件存在
+2. 运行初始化脚本：
+   ```bash
+   python module_thesis/scripts/init_universal_instruction_system.py
+   ```
+
+**说明**：
+- 如果已存在激活的指令系统，脚本会跳过初始化
+- 如果需要更新，可以手动停用旧的，然后重新运行脚本
+
+---
+
+### 4.2 使用新流程
+
+**流程**：
+1. 用户上传Word模板
+2. 系统读取完整指令系统（从数据库）
+3. 提取文档格式信息（python-docx）
+4. AI生成（内部两步，对外一步）：
+   - 第一步：生成自然语言的格式要求
+   - 第二步：按指令系统格式，生成子集指令系统
+5. 校验（格式规范、一致性、数据质量）
+6. 保存子集指令到数据库
+
+**回退机制**：
+- 如果没有完整指令系统，自动回退到原有的生成方法
+- 确保向后兼容
+
+---
+
+## 五、优势
+
+### ✅ 1. 更符合设计原则
+
+- 有完整的指令系统作为模板
+- 每个学校使用子集指令系统
+- 符合"通用格式指令系统"的设计原则
+
+---
+
+### ✅ 2. 更可控的生成过程
+
+- 分两步生成，可以更好地控制
+- 第一步验证AI是否正确理解格式要求
+- 第二步确保格式符合指令系统规范
+
+---
+
+### ✅ 3. 更全面的校验
+
+- 同时校验自然语言和子指令集
+- 可以验证一致性
+- 可以验证格式规范
+
+---
+
+### ✅ 4. 更容易维护
+
+- 完整指令系统可以动态更新
+- 不需要修改代码，只需要更新指令系统
+- 可以版本化管理
+
+---
 
 ## 六、注意事项
 
-1. **目录页码**：当前实现中，目录条目的页码为`None`，因为页码需要在文档生成后才能确定。如果需要页码，可以考虑：
-   - 使用Word的TOC功能（需要额外的库支持）
-   - 在文档生成后，再次扫描文档，更新目录页码
+### 6.1 数据库迁移
 
-2. **目录格式**：确保格式指令中的目录格式配置完整，包括：
-   - 目录标题格式
-   - 目录条目格式（多级）
-   - 目录前后空行
+**需要执行**：
+- 创建 `universal_instruction_system` 表
+- 运行初始化脚本插入初始数据
 
-3. **性能优化**：如果章节数量很多，目录生成可能需要一些时间。可以考虑：
-   - 异步生成目录
-   - 缓存目录生成结果
+**SQL示例**（PostgreSQL）：
+```sql
+CREATE TABLE universal_instruction_system (
+    id BIGSERIAL PRIMARY KEY,
+    version VARCHAR(50) NOT NULL,
+    description VARCHAR(500),
+    instruction_data JSONB NOT NULL,
+    is_active CHAR(1) DEFAULT '1',
+    create_by VARCHAR(64) DEFAULT '',
+    create_time TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    update_by VARCHAR(64) DEFAULT '',
+    update_time TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    remark VARCHAR(500)
+);
 
-## 七、后续优化建议
+COMMENT ON TABLE universal_instruction_system IS '通用格式指令系统表';
+COMMENT ON COLUMN universal_instruction_system.version IS '版本号';
+COMMENT ON COLUMN universal_instruction_system.description IS '描述';
+COMMENT ON COLUMN universal_instruction_system.instruction_data IS '指令数据（JSON格式，完整指令系统）';
+COMMENT ON COLUMN universal_instruction_system.is_active IS '是否激活（0否 1是）';
+```
 
-1. **目录页码支持**：实现目录页码的自动更新
-2. **目录样式优化**：支持更多目录样式（点线、下划线等）
-3. **目录级别限制**：支持配置最大目录级别
-4. **目录生成性能**：优化大量章节时的目录生成性能
+---
+
+### 6.2 初始化脚本运行
+
+**运行方式**：
+```bash
+cd RuoYi-Vue3-FastAPI/ruoyi-fastapi-backend
+python -m module_thesis.scripts.init_universal_instruction_system
+```
+
+**或**：
+```bash
+python module_thesis/scripts/init_universal_instruction_system.py
+```
+
+---
+
+## 七、测试建议
+
+### 7.1 功能测试
+
+1. **测试完整指令系统初始化**：
+   - 运行初始化脚本
+   - 检查数据库中的数据
+
+2. **测试AI生成流程**：
+   - 上传一个Word模板
+   - 检查是否使用了新的两步生成流程
+   - 检查生成的自然语言和JSON指令
+
+3. **测试校验逻辑**：
+   - 检查格式规范校验是否工作
+   - 检查一致性校验是否工作
+   - 检查数据质量校验是否修正异常值
+
+---
+
+### 7.2 回退测试
+
+1. **测试回退机制**：
+   - 停用数据库中的完整指令系统
+   - 上传Word模板
+   - 检查是否回退到原有方法
+
+---
+
+## 八、总结
+
+**实现完成**：✅ 所有功能已实现
+
+**关键改进**：
+1. ✅ 完整指令系统设计（包含所有格式要求）
+2. ✅ AI内部两步生成（自然语言 + 子集指令）
+3. ✅ 三种校验方式（格式规范、一致性、数据质量）
+4. ✅ 回退机制（确保向后兼容）
+
+**下一步**：
+1. 运行初始化脚本，将完整指令系统插入数据库
+2. 测试完整流程
+3. 根据测试结果优化
