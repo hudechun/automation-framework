@@ -1,0 +1,1699 @@
+{
+  "version": "1.2",
+  "description": "通用格式指令系统（所有可能的格式要求），已添加空行数字段支持和字符间距选项（两个全角空格）",
+  "instruction_type": "universal_format",
+  "last_updated": "2025-01-27",
+  "applicable_scopes": ["本科论文", "硕士论文", "博士论文"],
+  
+  "format_rules": {
+    "default_font": {
+      "name": {
+        "type": "string",
+        "allowed_values": ["宋体", "楷体_GB2312", "黑体", "Times New Roman", "Arial", "仿宋", "微软雅黑"],
+        "default": "宋体",
+        "description": "默认中文字体"
+      },
+      "size_pt": {
+        "type": "number",
+        "range": [8, 30],
+        "default": 12,
+        "description": "默认字体大小（磅）"
+      },
+      "color": {
+        "type": "string",
+        "pattern": "^[0-9A-Fa-f]{6}$",
+        "default": "000000",
+        "description": "字体颜色（RGB值）"
+      }
+    },
+    
+    "english_font": {
+      "name": {
+        "type": "string",
+        "allowed_values": ["Times New Roman", "Arial", "Calibri", "Courier New"],
+        "default": "Times New Roman",
+        "description": "英文字体"
+      },
+      "size_pt": {
+        "type": "number",
+        "range": [8, 30],
+        "default": 12,
+        "description": "英文字体大小（磅）"
+      }
+    },
+    
+    "page": {
+      "size": {
+        "type": "string",
+        "allowed_values": ["A4", "Letter", "A3", "B5"],
+        "default": "A4",
+        "description": "纸张大小"
+      },
+      "margins": {
+        "top_cm": {
+          "type": "number",
+          "range": [1.0, 5.0],
+          "default": 2.54,
+          "description": "上边距（厘米）"
+        },
+        "bottom_cm": {
+          "type": "number",
+          "range": [1.0, 5.0],
+          "default": 2.54,
+          "description": "下边距（厘米）"
+        },
+        "left_cm": {
+          "type": "number",
+          "range": [1.0, 5.0],
+          "default": 3.17,
+          "description": "左边距（厘米）"
+        },
+        "right_cm": {
+          "type": "number",
+          "range": [1.0, 5.0],
+          "default": 3.17,
+          "description": "右边距（厘米）"
+        }
+      }
+    },
+    
+    "headings": {
+      "h1": {
+        "font_name": {
+          "type": "string",
+          "allowed_values": ["黑体", "楷体_GB2312", "宋体", "Times New Roman", "仿宋"],
+          "default": "黑体",
+          "description": "一级标题字体"
+        },
+        "font_size_pt": {
+          "type": "number",
+          "range": [8, 30],
+          "default": 14,
+          "description": "一级标题字号（磅）"
+        },
+        "bold": {
+          "type": "boolean",
+          "default": true,
+          "description": "是否加粗"
+        },
+        "alignment": {
+          "type": "string",
+          "allowed_values": ["left", "center", "right"],
+          "default": "left",
+          "description": "对齐方式"
+        },
+        "spacing_before_pt": {
+          "type": "number",
+          "range": [0, 100],
+          "default": 12,
+          "description": "标题前间距（磅），控制标题前的换行/空行"
+        },
+        "spacing_after_pt": {
+          "type": "number",
+          "range": [0, 100],
+          "default": 6,
+          "description": "标题后间距（磅），控制标题后的换行/空行"
+        },
+        "spacing_before_lines": {
+          "type": "number",
+          "range": [0, 10],
+          "default": 0,
+          "description": "标题前空行数（直接指定空行数，如：2表示空两行，优先于spacing_before_pt）"
+        },
+        "spacing_after_lines": {
+          "type": "number",
+          "range": [0, 10],
+          "default": 0,
+          "description": "标题后空行数（直接指定空行数，如：2表示空两行，优先于spacing_after_pt）"
+        },
+        "keep_with_next": {
+          "type": "boolean",
+          "default": false,
+          "description": "标题是否与下一段同页"
+        }
+      },
+      "h2": {
+        "font_name": {
+          "type": "string",
+          "allowed_values": ["黑体", "楷体_GB2312", "宋体", "Times New Roman", "仿宋"],
+          "default": "黑体",
+          "description": "二级标题字体"
+        },
+        "font_size_pt": {
+          "type": "number",
+          "range": [8, 30],
+          "default": 12,
+          "description": "二级标题字号（磅）"
+        },
+        "bold": {
+          "type": "boolean",
+          "default": true,
+          "description": "是否加粗"
+        },
+        "alignment": {
+          "type": "string",
+          "allowed_values": ["left", "center", "right"],
+          "default": "left",
+          "description": "对齐方式"
+        },
+        "spacing_before_pt": {
+          "type": "number",
+          "range": [0, 100],
+          "default": 6,
+          "description": "标题前间距（磅）"
+        },
+        "spacing_after_pt": {
+          "type": "number",
+          "range": [0, 100],
+          "default": 3,
+          "description": "标题后间距（磅）"
+        },
+        "spacing_before_lines": {
+          "type": "number",
+          "range": [0, 10],
+          "default": 0,
+          "description": "标题前空行数（直接指定空行数，如：2表示空两行，优先于spacing_before_pt）"
+        },
+        "spacing_after_lines": {
+          "type": "number",
+          "range": [0, 10],
+          "default": 0,
+          "description": "标题后空行数（直接指定空行数，如：2表示空两行，优先于spacing_after_pt）"
+        }
+      },
+      "h3": {
+        "font_name": {
+          "type": "string",
+          "allowed_values": ["黑体", "楷体_GB2312", "宋体", "Times New Roman", "仿宋"],
+          "default": "黑体",
+          "description": "三级标题字体"
+        },
+        "font_size_pt": {
+          "type": "number",
+          "range": [8, 30],
+          "default": 12,
+          "description": "三级标题字号（磅）"
+        },
+        "bold": {
+          "type": "boolean",
+          "default": true,
+          "description": "是否加粗"
+        },
+        "alignment": {
+          "type": "string",
+          "allowed_values": ["left", "center", "right"],
+          "default": "left",
+          "description": "对齐方式"
+        },
+        "spacing_before_pt": {
+          "type": "number",
+          "range": [0, 100],
+          "default": 3,
+          "description": "标题前间距（磅）"
+        },
+        "spacing_after_pt": {
+          "type": "number",
+          "range": [0, 100],
+          "default": 3,
+          "description": "标题后间距（磅）"
+        },
+        "spacing_before_lines": {
+          "type": "number",
+          "range": [0, 10],
+          "default": 0,
+          "description": "标题前空行数（直接指定空行数，如：2表示空两行，优先于spacing_before_pt）"
+        },
+        "spacing_after_lines": {
+          "type": "number",
+          "range": [0, 10],
+          "default": 0,
+          "description": "标题后空行数（直接指定空行数，如：2表示空两行，优先于spacing_after_pt）"
+        }
+      }
+    },
+    
+    "paragraph": {
+      "alignment": {
+        "type": "string",
+        "allowed_values": ["left", "center", "right", "justify"],
+        "default": "left",
+        "description": "段落对齐方式"
+      },
+      "line_spacing": {
+        "type": "number",
+        "range": [0.5, 3.0],
+        "default": 1.5,
+        "description": "行距倍数"
+      },
+      "first_line_indent_chars": {
+        "type": "number",
+        "range": [0, 10],
+        "default": 2,
+        "description": "首行缩进字符数"
+      },
+      "spacing_between_paragraphs_pt": {
+        "type": "number",
+        "range": [0, 50],
+        "default": 0,
+        "description": "段落之间间距（磅）"
+      },
+      "spacing_after_heading_pt": {
+        "type": "number",
+        "range": [0, 50],
+        "default": 0,
+        "description": "标题后段落间距（磅）"
+      },
+      "spacing_before_heading_pt": {
+        "type": "number",
+        "range": [0, 50],
+        "default": 0,
+        "description": "标题前段落间距（磅）"
+      }
+    },
+    
+    "table": {
+      "caption": {
+        "font_name": {
+          "type": "string",
+          "allowed_values": ["宋体", "黑体", "Times New Roman"],
+          "default": "宋体",
+          "description": "表格标题字体"
+        },
+        "font_size_pt": {
+          "type": "number",
+          "range": [8, 30],
+          "default": 12,
+          "description": "表格标题字号（磅）"
+        },
+        "alignment": {
+          "type": "string",
+          "allowed_values": ["above", "below"],
+          "default": "above",
+          "description": "标题位置（表格上方/下方）"
+        },
+        "format": {
+          "type": "string",
+          "pattern": "表\\{number\\} .+",
+          "default": "表{number} {title}",
+          "description": "表格标题格式模板"
+        }
+      },
+      "border": {
+        "style": {
+          "type": "string",
+          "allowed_values": ["solid", "dashed", "dotted", "none"],
+          "default": "solid",
+          "description": "边框样式"
+        },
+        "width_pt": {
+          "type": "number",
+          "range": [0.5, 5.0],
+          "default": 0.5,
+          "description": "边框宽度（磅）"
+        }
+      },
+      "cell": {
+        "font_name": {
+          "type": "string",
+          "allowed_values": ["宋体", "Times New Roman"],
+          "default": "宋体",
+          "description": "单元格字体"
+        },
+        "font_size_pt": {
+          "type": "number",
+          "range": [8, 30],
+          "default": 12,
+          "description": "单元格字号（磅）"
+        },
+        "alignment": {
+          "type": "string",
+          "allowed_values": ["left", "center", "right"],
+          "default": "center",
+          "description": "单元格对齐方式"
+        }
+      },
+      "header_row": {
+        "font_name": {
+          "type": "string",
+          "allowed_values": ["宋体", "黑体", "Times New Roman"],
+          "default": "宋体",
+          "description": "表头字体"
+        },
+        "font_size_pt": {
+          "type": "number",
+          "range": [8, 30],
+          "default": 12,
+          "description": "表头字号（磅）"
+        },
+        "bold": {
+          "type": "boolean",
+          "default": true,
+          "description": "表头是否加粗"
+        }
+      }
+    },
+    
+    "figure": {
+      "caption": {
+        "font_name": {
+          "type": "string",
+          "allowed_values": ["宋体", "Times New Roman"],
+          "default": "宋体",
+          "description": "图片标题字体"
+        },
+        "font_size_pt": {
+          "type": "number",
+          "range": [8, 30],
+          "default": 12,
+          "description": "图片标题字号（磅）"
+        },
+        "alignment": {
+          "type": "string",
+          "allowed_values": ["center", "left"],
+          "default": "center",
+          "description": "图片标题对齐方式"
+        },
+        "format": {
+          "type": "string",
+          "pattern": "图\\{number\\} .+",
+          "default": "图{number} {title}",
+          "description": "图片标题格式模板"
+        }
+      },
+      "alignment": {
+        "type": "string",
+        "allowed_values": ["center", "left", "right"],
+        "default": "center",
+        "description": "图片对齐方式"
+      },
+      "max_width_cm": {
+        "type": "number",
+        "range": [5, 20],
+        "default": 15,
+        "description": "图片最大宽度（厘米）"
+      },
+      "max_height_cm": {
+        "type": "number",
+        "range": [5, 25],
+        "default": 20,
+        "description": "图片最大高度（厘米）"
+      }
+    },
+    
+    "header_footer": {
+      "header": {
+        "enabled": {
+          "type": "boolean",
+          "default": false,
+          "description": "是否启用页眉"
+        },
+        "font_name": {
+          "type": "string",
+          "allowed_values": ["宋体", "Times New Roman"],
+          "default": "宋体",
+          "description": "页眉字体"
+        },
+        "font_size_pt": {
+          "type": "number",
+          "range": [8, 30],
+          "default": 10,
+          "description": "页眉字号（磅）"
+        },
+        "alignment": {
+          "type": "string",
+          "allowed_values": ["left", "center", "right"],
+          "default": "center",
+          "description": "页眉对齐方式"
+        },
+        "different_odd_even": {
+          "type": "boolean",
+          "default": false,
+          "description": "奇偶页是否不同"
+        }
+      },
+      "footer": {
+        "enabled": {
+          "type": "boolean",
+          "default": true,
+          "description": "是否启用页脚"
+        },
+        "font_name": {
+          "type": "string",
+          "allowed_values": ["宋体", "Times New Roman"],
+          "default": "宋体",
+          "description": "页脚字体"
+        },
+        "font_size_pt": {
+          "type": "number",
+          "range": [8, 30],
+          "default": 10,
+          "description": "页脚字号（磅）"
+        },
+        "page_number": {
+          "enabled": {
+            "type": "boolean",
+            "default": true,
+            "description": "是否显示页码"
+          },
+          "format": {
+            "type": "string",
+            "allowed_values": ["{page}", "第{page}页", "{page}/{total}"],
+            "default": "{page}",
+            "description": "页码格式"
+          },
+          "position": {
+            "type": "string",
+            "allowed_values": ["left", "center", "right"],
+            "default": "center",
+            "description": "页码位置"
+          },
+          "start_from": {
+            "type": "number",
+            "range": [1, 100],
+            "default": 1,
+            "description": "起始页码"
+          }
+        },
+        "different_odd_even": {
+          "type": "boolean",
+          "default": false,
+          "description": "奇偶页是否不同"
+        }
+      }
+    },
+    
+    "list": {
+      "ordered": {
+        "numbering_style": {
+          "type": "string",
+          "allowed_values": ["1,2,3", "a,b,c", "i,ii,iii", "A,B,C"],
+          "default": "1,2,3",
+          "description": "有序列表编号样式"
+        },
+        "font_name": {
+          "type": "string",
+          "allowed_values": ["宋体", "Times New Roman"],
+          "default": "宋体",
+          "description": "列表项字体"
+        },
+        "font_size_pt": {
+          "type": "number",
+          "range": [8, 30],
+          "default": 12,
+          "description": "列表项字号（磅）"
+        },
+        "indent_pt": {
+          "type": "number",
+          "range": [0, 200],
+          "default": 36,
+          "description": "列表缩进值（磅）"
+        },
+        "spacing_pt": {
+          "type": "number",
+          "range": [0, 50],
+          "default": 0,
+          "description": "列表项间距（磅）"
+        }
+      },
+      "unordered": {
+        "bullet_style": {
+          "type": "string",
+          "allowed_values": ["•", "-", "*", "○"],
+          "default": "•",
+          "description": "无序列表项目符号"
+        },
+        "font_name": {
+          "type": "string",
+          "allowed_values": ["宋体", "Times New Roman"],
+          "default": "宋体",
+          "description": "列表项字体"
+        },
+        "font_size_pt": {
+          "type": "number",
+          "range": [8, 30],
+          "default": 12,
+          "description": "列表项字号（磅）"
+        },
+        "indent_pt": {
+          "type": "number",
+          "range": [0, 200],
+          "default": 36,
+          "description": "列表缩进值（磅）"
+        },
+        "spacing_pt": {
+          "type": "number",
+          "range": [0, 50],
+          "default": 0,
+          "description": "列表项间距（磅）"
+        }
+      }
+    },
+    
+    "equation": {
+      "caption": {
+        "font_name": {
+          "type": "string",
+          "allowed_values": ["Times New Roman", "宋体"],
+          "default": "Times New Roman",
+          "description": "公式编号字体"
+        },
+        "font_size_pt": {
+          "type": "number",
+          "range": [8, 30],
+          "default": 12,
+          "description": "公式编号字号（磅）"
+        },
+        "alignment": {
+          "type": "string",
+          "allowed_values": ["right", "center"],
+          "default": "right",
+          "description": "公式编号对齐方式"
+        },
+        "format": {
+          "type": "string",
+          "pattern": "\\(\\{number\\}\\)",
+          "default": "({number})",
+          "description": "公式编号格式模板"
+        }
+      },
+      "alignment": {
+        "type": "string",
+        "allowed_values": ["center", "left"],
+        "default": "center",
+        "description": "公式对齐方式"
+      },
+      "font_name": {
+        "type": "string",
+        "allowed_values": ["Times New Roman", "Arial"],
+        "default": "Times New Roman",
+        "description": "公式字体"
+      },
+      "font_size_pt": {
+        "type": "number",
+        "range": [8, 30],
+        "default": 12,
+        "description": "公式字号（磅）"
+      }
+    },
+    
+    "footnote": {
+      "numbering_style": {
+        "type": "string",
+        "allowed_values": ["1,2,3", "*,**,***"],
+        "default": "1,2,3",
+        "description": "脚注编号样式"
+      },
+      "font_name": {
+        "type": "string",
+        "allowed_values": ["宋体", "Times New Roman"],
+        "default": "宋体",
+        "description": "脚注字体"
+      },
+      "font_size_pt": {
+        "type": "number",
+        "range": [8, 30],
+        "default": 10,
+        "description": "脚注字号（磅）"
+      },
+      "line_spacing": {
+        "type": "number",
+        "range": [0.5, 3.0],
+        "default": 1.0,
+        "description": "脚注行距"
+      },
+      "separator": {
+        "type": "string",
+        "allowed_values": ["——", "—", "-"],
+        "default": "——",
+        "description": "脚注分隔符"
+      }
+    },
+    
+    "cover": {
+      "title": {
+        "font_name": {
+          "type": "string",
+          "allowed_values": ["黑体", "楷体_GB2312", "宋体"],
+          "default": "黑体",
+          "description": "封面标题字体"
+        },
+        "font_size_pt": {
+          "type": "number",
+          "range": [16, 30],
+          "default": 22,
+          "description": "封面标题字号（磅）"
+        },
+        "alignment": {
+          "type": "string",
+          "allowed_values": ["center", "left"],
+          "default": "center",
+          "description": "封面标题对齐方式"
+        },
+        "position": {
+          "type": "string",
+          "allowed_values": ["top", "center"],
+          "default": "top",
+          "description": "封面标题位置"
+        }
+      },
+      "author_info": {
+        "font_name": {
+          "type": "string",
+          "allowed_values": ["楷体_GB2312", "宋体", "黑体"],
+          "default": "楷体_GB2312",
+          "description": "作者信息字体"
+        },
+        "font_size_pt": {
+          "type": "number",
+          "range": [12, 20],
+          "default": 16,
+          "description": "作者信息字号（磅）"
+        },
+        "alignment": {
+          "type": "string",
+          "allowed_values": ["center", "left"],
+          "default": "center",
+          "description": "作者信息对齐方式"
+        },
+        "position": {
+          "type": "string",
+          "allowed_values": ["bottom", "center"],
+          "default": "bottom",
+          "description": "作者信息位置"
+        }
+      },
+      "layout": {
+        "spacing_pt": {
+          "type": "number",
+          "range": [0, 200],
+          "default": 24,
+          "description": "各元素间距（磅）"
+        }
+      }
+    },
+    
+    "special_sections": {
+      "title": {
+        "font_name": {
+          "type": "string",
+          "allowed_values": ["黑体", "楷体_GB2312", "宋体", "Times New Roman"],
+          "default": "黑体",
+          "description": "论文标题字体"
+        },
+        "font_size_pt": {
+          "type": "number",
+          "range": [14, 30],
+          "default": 18,
+          "description": "论文标题字号（磅）"
+        },
+        "bold": {
+          "type": "boolean",
+          "default": false,
+          "description": "是否加粗"
+        },
+        "alignment": {
+          "type": "string",
+          "allowed_values": ["center", "left"],
+          "default": "center",
+          "description": "对齐方式"
+        },
+        "spacing_after_pt": {
+          "type": "number",
+          "range": [0, 100],
+          "default": 12,
+          "description": "标题后间距（磅）"
+        }
+      },
+      "abstract": {
+        "label_text": {
+          "type": "string",
+          "allowed_values": ["摘要", "Abstract", "[摘要]"],
+          "default": "摘要",
+          "description": "摘要标签文本"
+        },
+        "label_font": {
+          "type": "string",
+          "allowed_values": ["宋体", "黑体", "楷体_GB2312"],
+          "default": "宋体",
+          "description": "标签字体"
+        },
+        "label_size_pt": {
+          "type": "number",
+          "range": [8, 30],
+          "default": 12,
+          "description": "标签字号（磅）"
+        },
+        "content_font": {
+          "type": "string",
+          "allowed_values": ["宋体", "Times New Roman"],
+          "default": "宋体",
+          "description": "摘要正文字体"
+        },
+        "content_size_pt": {
+          "type": "number",
+          "range": [8, 30],
+          "default": 12,
+          "description": "摘要正文字号（磅）"
+        },
+        "line_spacing": {
+          "type": "number",
+          "range": [0.5, 3.0],
+          "default": 1.5,
+          "description": "行距倍数"
+        },
+        "word_count_min": {
+          "type": "number",
+          "range": [100, 10000],
+          "default": 300,
+          "description": "摘要最少字数"
+        },
+        "word_count_max": {
+          "type": "number",
+          "range": [100, 10000],
+          "default": 500,
+          "description": "摘要最多字数"
+        },
+        "title_before_lines": {
+          "type": "number",
+          "range": [0, 10],
+          "default": 0,
+          "description": "标题前空行数（直接指定空行数，如：2表示空两行）"
+        },
+        "title_after_lines": {
+          "type": "number",
+          "range": [0, 10],
+          "default": 0,
+          "description": "标题后空行数（直接指定空行数，如：2表示空两行）"
+        }
+      },
+      "keywords": {
+        "label_text": {
+          "type": "string",
+          "allowed_values": ["关键词", "Key words", "[关键词]"],
+          "default": "关键词",
+          "description": "关键词标签文本"
+        },
+        "separator": {
+          "type": "string",
+          "allowed_values": ["；", "，", ";", ","],
+          "default": "；",
+          "description": "关键词分隔符"
+        },
+        "font": {
+          "type": "string",
+          "allowed_values": ["宋体", "Times New Roman"],
+          "default": "宋体",
+          "description": "关键词字体"
+        },
+        "size_pt": {
+          "type": "number",
+          "range": [8, 30],
+          "default": 12,
+          "description": "关键词字号（磅）"
+        },
+        "count_min": {
+          "type": "number",
+          "range": [3, 20],
+          "default": 3,
+          "description": "最少关键词数"
+        },
+        "count_max": {
+          "type": "number",
+          "range": [3, 20],
+          "default": 8,
+          "description": "最多关键词数"
+        },
+        "title_before_lines": {
+          "type": "number",
+          "range": [0, 10],
+          "default": 0,
+          "description": "标题前空行数（直接指定空行数，如：2表示空两行）"
+        },
+        "title_after_lines": {
+          "type": "number",
+          "range": [0, 10],
+          "default": 0,
+          "description": "标题后空行数（直接指定空行数，如：2表示空两行）"
+        }
+      },
+      "abstract_english": {
+        "title_text": {
+          "type": "string",
+          "allowed_values": ["Abstract", "ABSTRACT"],
+          "default": "Abstract",
+          "description": "英文摘要标题文本"
+        },
+        "title_font": {
+          "type": "string",
+          "allowed_values": ["Times New Roman", "Arial"],
+          "default": "Times New Roman",
+          "description": "英文摘要标题字体"
+        },
+        "title_size_pt": {
+          "type": "number",
+          "range": [8, 30],
+          "default": 12,
+          "description": "英文摘要标题字号（磅）"
+        },
+        "title_bold": {
+          "type": "boolean",
+          "default": true,
+          "description": "标题是否加粗"
+        },
+        "content_font": {
+          "type": "string",
+          "allowed_values": ["Times New Roman", "Arial"],
+          "default": "Times New Roman",
+          "description": "英文摘要正文字体"
+        },
+        "content_size_pt": {
+          "type": "number",
+          "range": [8, 30],
+          "default": 12,
+          "description": "英文摘要正文字号（磅）"
+        },
+        "line_spacing": {
+          "type": "number",
+          "range": [0.5, 3.0],
+          "default": 1.5,
+          "description": "行距倍数"
+        }
+      },
+      "keywords_english": {
+        "label_text": {
+          "type": "string",
+          "allowed_values": ["Key words", "Keywords", "KEY WORDS"],
+          "default": "Key words",
+          "description": "英文关键词标签文本"
+        },
+        "separator": {
+          "type": "string",
+          "allowed_values": [";", ",", "；"],
+          "default": ";",
+          "description": "关键词分隔符"
+        },
+        "font": {
+          "type": "string",
+          "allowed_values": ["Times New Roman", "Arial"],
+          "default": "Times New Roman",
+          "description": "英文关键词字体"
+        },
+        "size_pt": {
+          "type": "number",
+          "range": [8, 30],
+          "default": 12,
+          "description": "英文关键词字号（磅）"
+        },
+        "label_bold": {
+          "type": "boolean",
+          "default": true,
+          "description": "标签是否加粗"
+        }
+      },
+      "title_english": {
+        "font_name": {
+          "type": "string",
+          "allowed_values": ["Times New Roman", "Arial"],
+          "default": "Times New Roman",
+          "description": "英文题目字体"
+        },
+        "font_size_pt": {
+          "type": "number",
+          "range": [12, 24],
+          "default": 14,
+          "description": "英文题目字号（磅）"
+        },
+        "bold": {
+          "type": "boolean",
+          "default": true,
+          "description": "是否加粗"
+        },
+        "alignment": {
+          "type": "string",
+          "allowed_values": ["center", "left"],
+          "default": "center",
+          "description": "对齐方式"
+        }
+      },
+      "author_info": {
+        "font_name": {
+          "type": "string",
+          "allowed_values": ["楷体_GB2312", "宋体", "黑体", "Times New Roman"],
+          "default": "楷体_GB2312",
+          "description": "作者信息字体"
+        },
+        "font_size_pt": {
+          "type": "number",
+          "range": [10, 20],
+          "default": 14,
+          "description": "作者信息字号（磅）"
+        },
+        "alignment": {
+          "type": "string",
+          "allowed_values": ["center", "left"],
+          "default": "center",
+          "description": "对齐方式"
+        }
+      },
+      "appendix": {
+        "title_text": {
+          "type": "string",
+          "allowed_values": ["附录", "Appendix", "APPENDIX"],
+          "default": "附录",
+          "description": "附录标题文本"
+        },
+        "title_font": {
+          "type": "string",
+          "allowed_values": ["黑体", "宋体", "Times New Roman"],
+          "default": "黑体",
+          "description": "附录标题字体"
+        },
+        "title_size_pt": {
+          "type": "number",
+          "range": [8, 30],
+          "default": 14,
+          "description": "附录标题字号（磅）"
+        },
+        "title_alignment": {
+          "type": "string",
+          "allowed_values": ["left", "center", "right"],
+          "default": "left",
+          "description": "附录标题对齐方式"
+        },
+        "content_font": {
+          "type": "string",
+          "allowed_values": ["宋体", "Times New Roman"],
+          "default": "宋体",
+          "description": "附录内容字体"
+        },
+        "content_size_pt": {
+          "type": "number",
+          "range": [8, 30],
+          "default": 12,
+          "description": "附录内容字号（磅）"
+        }
+      },
+      "conclusion": {
+        "title_text": {
+          "type": "string",
+          "allowed_values": ["结论", "结语", "结　论", "结　　论", "Conclusion"],
+          "default": "结论",
+          "description": "结论标题文本（注意：某些格式要求使用'结　　论'，即两个全角空格分隔字符）"
+        },
+        "title_font": {
+          "type": "string",
+          "allowed_values": ["黑体", "宋体", "Times New Roman"],
+          "default": "黑体",
+          "description": "结论标题字体"
+        },
+        "title_size_pt": {
+          "type": "number",
+          "range": [8, 30],
+          "default": 14,
+          "description": "结论标题字号（磅）"
+        },
+        "title_alignment": {
+          "type": "string",
+          "allowed_values": ["left", "center", "right"],
+          "default": "left",
+          "description": "结论标题对齐方式"
+        },
+        "title_spacing_before_pt": {
+          "type": "number",
+          "range": [0, 100],
+          "default": 12,
+          "description": "标题前间距（磅）"
+        },
+        "title_spacing_after_pt": {
+          "type": "number",
+          "range": [0, 100],
+          "default": 6,
+          "description": "标题后间距（磅）"
+        },
+        "title_before_lines": {
+          "type": "number",
+          "range": [0, 10],
+          "default": 0,
+          "description": "标题前空行数（直接指定空行数，如：2表示空两行，优先于title_spacing_before_pt）"
+        },
+        "title_after_lines": {
+          "type": "number",
+          "range": [0, 10],
+          "default": 0,
+          "description": "标题后空行数（直接指定空行数，如：2表示空两行，优先于title_spacing_after_pt）"
+        }
+      },
+      "references": {
+        "title_text": {
+          "type": "string",
+          "allowed_values": ["参考文献", "参 考 文 献", "References", "REFERENCES"],
+          "default": "参考文献",
+          "description": "参考文献标题文本"
+        },
+        "title_font": {
+          "type": "string",
+          "allowed_values": ["黑体", "宋体", "Times New Roman"],
+          "default": "黑体",
+          "description": "参考文献标题字体"
+        },
+        "title_size_pt": {
+          "type": "number",
+          "range": [8, 30],
+          "default": 14,
+          "description": "参考文献标题字号（磅）"
+        },
+        "title_alignment": {
+          "type": "string",
+          "allowed_values": ["left", "center", "right"],
+          "default": "left",
+          "description": "参考文献标题对齐方式"
+        },
+        "item_font": {
+          "type": "string",
+          "allowed_values": ["宋体", "Times New Roman"],
+          "default": "宋体",
+          "description": "参考文献条目字体"
+        },
+        "item_size_pt": {
+          "type": "number",
+          "range": [8, 30],
+          "default": 12,
+          "description": "参考文献条目字号（磅）"
+        },
+        "line_spacing": {
+          "type": "number",
+          "range": [0.5, 3.0],
+          "default": 1.5,
+          "description": "行距倍数"
+        },
+        "item_alignment": {
+          "type": "string",
+          "allowed_values": ["left", "center", "right"],
+          "default": "left",
+          "description": "参考文献条目对齐方式"
+        },
+        "format_rules": {
+          "journal_format": {
+            "type": "string",
+            "pattern": "\\[序号\\] .+",
+            "default": "[序号] 作者. 文题[J]. 刊名, 年, 卷号(期号): 起-止页码.",
+            "description": "期刊格式模板"
+          },
+          "book_format": {
+            "type": "string",
+            "pattern": "\\[序号\\] .+",
+            "default": "[序号] 作者. 书名[M]. 出版地：出版者，出版年. 起-止页码.",
+            "description": "专著格式模板"
+          },
+          "numbering_style": {
+            "type": "string",
+            "allowed_values": ["[1]", "(1)", "1."],
+            "default": "[1]",
+            "description": "序号样式"
+          }
+        },
+        "title_spacing_before_pt": {
+          "type": "number",
+          "range": [0, 100],
+          "default": 12,
+          "description": "标题前间距（磅）"
+        },
+        "title_spacing_after_pt": {
+          "type": "number",
+          "range": [0, 100],
+          "default": 6,
+          "description": "标题后间距（磅）"
+        },
+        "title_before_lines": {
+          "type": "number",
+          "range": [0, 10],
+          "default": 0,
+          "description": "标题前空行数（直接指定空行数，如：2表示空两行，优先于title_spacing_before_pt）"
+        },
+        "title_after_lines": {
+          "type": "number",
+          "range": [0, 10],
+          "default": 0,
+          "description": "标题后空行数（直接指定空行数，如：2表示空两行，优先于title_spacing_after_pt）"
+        }
+      },
+      "acknowledgement": {
+        "title_text": {
+          "type": "string",
+          "allowed_values": ["致谢", "致　谢", "Acknowledgement", "ACKNOWLEDGEMENT"],
+          "default": "致谢",
+          "description": "致谢标题文本"
+        },
+        "title_font": {
+          "type": "string",
+          "allowed_values": ["黑体", "宋体", "Times New Roman"],
+          "default": "黑体",
+          "description": "致谢标题字体"
+        },
+        "title_size_pt": {
+          "type": "number",
+          "range": [8, 30],
+          "default": 14,
+          "description": "致谢标题字号（磅）"
+        },
+        "title_alignment": {
+          "type": "string",
+          "allowed_values": ["left", "center", "right"],
+          "default": "center",
+          "description": "致谢标题对齐方式"
+        },
+        "title_spacing_before_pt": {
+          "type": "number",
+          "range": [0, 100],
+          "default": 12,
+          "description": "标题前间距（磅）"
+        },
+        "title_spacing_after_pt": {
+          "type": "number",
+          "range": [0, 100],
+          "default": 6,
+          "description": "标题后间距（磅）"
+        },
+        "title_before_lines": {
+          "type": "number",
+          "range": [0, 10],
+          "default": 0,
+          "description": "标题前空行数（直接指定空行数，如：2表示空两行，优先于title_spacing_before_pt）"
+        },
+        "title_after_lines": {
+          "type": "number",
+          "range": [0, 10],
+          "default": 0,
+          "description": "标题后空行数（直接指定空行数，如：2表示空两行，优先于title_spacing_after_pt）"
+        }
+      },
+      "table_of_contents": {
+        "title_text": {
+          "type": "string",
+          "allowed_values": ["目录", "目　录", "目　　录", "目 录", "Table of Contents"],
+          "default": "目录",
+          "description": "目录标题文本（注意：某些格式要求使用'目　　录'，即两个全角空格分隔字符）"
+        },
+        "title_font": {
+          "type": "string",
+          "allowed_values": ["黑体", "宋体", "Times New Roman"],
+          "default": "黑体",
+          "description": "目录标题字体"
+        },
+        "title_size_pt": {
+          "type": "number",
+          "range": [8, 30],
+          "default": 16,
+          "description": "目录标题字号（磅）"
+        },
+        "title_alignment": {
+          "type": "string",
+          "allowed_values": ["left", "center", "right"],
+          "default": "center",
+          "description": "目录标题对齐方式"
+        },
+        "title_spacing_before_pt": {
+          "type": "number",
+          "range": [0, 100],
+          "default": 0,
+          "description": "标题前间距（磅）"
+        },
+        "title_spacing_after_pt": {
+          "type": "number",
+          "range": [0, 100],
+          "default": 0,
+          "description": "标题后间距（磅）"
+        },
+        "title_before_lines": {
+          "type": "number",
+          "range": [0, 10],
+          "default": 0,
+          "description": "标题前空行数（直接指定空行数，如：2表示空两行，优先于title_spacing_before_pt）"
+        },
+        "title_after_lines": {
+          "type": "number",
+          "range": [0, 10],
+          "default": 0,
+          "description": "标题后空行数（直接指定空行数，如：2表示空两行，优先于title_spacing_after_pt）"
+        },
+        "entry_levels": {
+          "type": "array",
+          "allowed_values": [[1], [1, 2], [1, 2, 3]],
+          "default": [1, 2, 3],
+          "description": "目录支持的级别"
+        },
+        "entry_format": {
+          "level_1": {
+            "font": {
+              "type": "string",
+              "allowed_values": ["宋体", "黑体", "Times New Roman"],
+              "default": "宋体",
+              "description": "一级目录条目字体"
+            },
+            "size_pt": {
+              "type": "number",
+              "range": [8, 30],
+              "default": 12,
+              "description": "一级目录条目字号（磅）"
+            },
+            "bold": {
+              "type": "boolean",
+              "default": true,
+              "description": "是否加粗"
+            }
+          },
+          "level_2": {
+            "font": {
+              "type": "string",
+              "allowed_values": ["宋体", "Times New Roman"],
+              "default": "宋体",
+              "description": "二级目录条目字体"
+            },
+            "size_pt": {
+              "type": "number",
+              "range": [8, 30],
+              "default": 12,
+              "description": "二级目录条目字号（磅）"
+            },
+            "bold": {
+              "type": "boolean",
+              "default": false,
+              "description": "是否加粗"
+            }
+          },
+          "level_3": {
+            "font": {
+              "type": "string",
+              "allowed_values": ["宋体", "Times New Roman"],
+              "default": "宋体",
+              "description": "三级目录条目字体"
+            },
+            "size_pt": {
+              "type": "number",
+              "range": [8, 30],
+              "default": 12,
+              "description": "三级目录条目字号（磅）"
+            },
+            "bold": {
+              "type": "boolean",
+              "default": false,
+              "description": "是否加粗"
+            }
+          }
+        },
+        "line_spacing": {
+          "type": "number",
+          "range": [0.5, 3.0],
+          "default": 1.5,
+          "description": "目录行距倍数"
+        }
+      }
+    }
+  },
+  
+  "application_rules": {
+    "heading_detection": {
+      "type": "string",
+      "allowed_values": ["通过段落前缀数字识别层级", "通过样式名称识别层级", "通过格式特征识别层级"],
+      "default": "通过段落前缀数字识别层级",
+      "description": "标题识别规则"
+    },
+    "special_section_detection": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "properties": {
+          "marker": {
+            "type": "string",
+            "description": "特殊章节标记文本"
+          },
+          "type": {
+            "type": "string",
+            "allowed_values": ["conclusion", "references", "acknowledgement", "appendix", "abstract_english", "keywords_english"],
+            "description": "特殊章节类型"
+          }
+        }
+      },
+      "default": [
+        {"marker": "结　论", "type": "conclusion"},
+        {"marker": "参 考 文 献", "type": "references"},
+        {"marker": "致　谢", "type": "acknowledgement"},
+        {"marker": "附录", "type": "appendix"},
+        {"marker": "Abstract", "type": "abstract_english"},
+        {"marker": "Key words", "type": "keywords_english"}
+      ],
+      "description": "特殊章节检测规则"
+    },
+    "document_structure": {
+      "section_order": {
+        "type": "array",
+        "items": {
+          "type": "string"
+        },
+        "default": ["封面", "原创性声明", "评审表", "答辩记录表", "目录", "中文题目", "摘要", "关键词", "英文题目", "Abstract", "Key words", "正文", "结论", "参考文献", "附录", "致谢"],
+        "description": "文档结构顺序"
+      },
+      "required_sections": {
+        "type": "array",
+        "items": {
+          "type": "string"
+        },
+        "default": ["目录", "摘要", "关键词", "正文", "结论", "参考文献"],
+        "description": "必填章节"
+      },
+      "optional_sections": {
+        "type": "array",
+        "items": {
+          "type": "string"
+        },
+        "default": ["Abstract", "Key words", "附录", "致谢"],
+        "description": "可选章节"
+      }
+    },
+    "auto_generate_toc": {
+      "type": "boolean",
+      "default": true,
+      "description": "是否自动生成目录"
+    },
+    "toc_generation_rules": {
+      "include_levels": {
+        "type": "array",
+        "items": {
+          "type": "number"
+        },
+        "default": [1, 2, 3],
+        "description": "包含的目录级别"
+      },
+      "exclude_sections": {
+        "type": "array",
+        "items": {
+          "type": "string"
+        },
+        "default": ["摘要", "关键词", "目录"],
+        "description": "排除的章节"
+      },
+      "page_number_format": {
+        "type": "string",
+        "allowed_values": ["arabic", "roman"],
+        "default": "arabic",
+        "description": "页码格式"
+      }
+    },
+    "font_fallback": {
+      "chinese": {
+        "type": "string",
+        "allowed_values": ["宋体", "楷体_GB2312", "黑体"],
+        "default": "宋体",
+        "description": "中文字体回退"
+      },
+      "english": {
+        "type": "string",
+        "allowed_values": ["Times New Roman", "Arial"],
+        "default": "Times New Roman",
+        "description": "英文字体回退"
+      }
+    },
+    "chapter_numbering_format": {
+      "level_1": {
+        "format_type": {
+          "type": "string",
+          "allowed_values": ["chinese_chapter", "numbered", "roman"],
+          "default": "chinese_chapter",
+          "description": "格式类型"
+        },
+        "pattern": {
+          "type": "string",
+          "examples": ["第{number}章 {title}", "{number}. {title}", "Chapter {number} {title}"],
+          "default": "第{number}章 {title}",
+          "description": "格式模板"
+        },
+        "number_style": {
+          "type": "string",
+          "allowed_values": ["chinese", "arabic", "roman"],
+          "default": "chinese",
+          "description": "数字样式"
+        },
+        "examples": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          },
+          "default": ["第一章 引言", "1. 引言"],
+          "description": "格式示例"
+        }
+      },
+      "level_2": {
+        "format_type": {
+          "type": "string",
+          "allowed_values": ["numbered"],
+          "default": "numbered",
+          "description": "格式类型"
+        },
+        "pattern": {
+          "type": "string",
+          "examples": ["{parent}.{number} {title}", "{parent} {number} {title}"],
+          "default": "{parent}.{number} {title}",
+          "description": "格式模板"
+        },
+        "number_style": {
+          "type": "string",
+          "allowed_values": ["arabic"],
+          "default": "arabic",
+          "description": "数字样式"
+        },
+        "examples": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          },
+          "default": ["1.1 研究背景", "1.2 研究意义"],
+          "description": "格式示例"
+        }
+      },
+      "level_3": {
+        "format_type": {
+          "type": "string",
+          "allowed_values": ["numbered"],
+          "default": "numbered",
+          "description": "格式类型"
+        },
+        "pattern": {
+          "type": "string",
+          "examples": ["{parent}.{sub}.{number} {title}"],
+          "default": "{parent}.{sub}.{number} {title}",
+          "description": "格式模板"
+        },
+        "number_style": {
+          "type": "string",
+          "allowed_values": ["arabic"],
+          "default": "arabic",
+          "description": "数字样式"
+        },
+        "examples": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          },
+          "default": ["1.1.1 人工智能定义", "1.1.2 发展历程"],
+          "description": "格式示例"
+        }
+      }
+    },
+    "special_section_format_rules": {
+      "abstract": {
+        "title": {
+          "type": "string",
+          "allowed_values": ["摘要", "Abstract"],
+          "default": "摘要",
+          "description": "标题文本"
+        },
+        "should_have_numbering": {
+          "type": "boolean",
+          "default": false,
+          "description": "是否应该有章节编号"
+        },
+        "position": {
+          "type": "string",
+          "allowed_values": ["after_toc", "after_title", "before_body"],
+          "default": "after_toc",
+          "description": "位置"
+        }
+      },
+      "keywords": {
+        "title": {
+          "type": "string",
+          "allowed_values": ["关键词", "Key words"],
+          "default": "关键词",
+          "description": "标题文本"
+        },
+        "should_have_numbering": {
+          "type": "boolean",
+          "default": false,
+          "description": "是否应该有章节编号"
+        },
+        "position": {
+          "type": "string",
+          "allowed_values": ["after_abstract", "after_toc"],
+          "default": "after_abstract",
+          "description": "位置"
+        }
+      },
+      "conclusion": {
+        "title": {
+          "type": "string",
+          "allowed_values": ["结论", "结语", "结　论"],
+          "default": "结论",
+          "description": "标题文本"
+        },
+        "should_have_numbering": {
+          "type": "boolean",
+          "default": false,
+          "description": "是否应该有章节编号"
+        },
+        "position": {
+          "type": "string",
+          "allowed_values": ["before_references", "after_body"],
+          "default": "before_references",
+          "description": "位置"
+        }
+      },
+      "references": {
+        "title": {
+          "type": "string",
+          "allowed_values": ["参考文献", "参 考 文 献"],
+          "default": "参考文献",
+          "description": "标题文本"
+        },
+        "should_have_numbering": {
+          "type": "boolean",
+          "default": false,
+          "description": "是否应该有章节编号"
+        },
+        "position": {
+          "type": "string",
+          "allowed_values": ["before_appendix", "after_conclusion"],
+          "default": "before_appendix",
+          "description": "位置"
+        }
+      },
+      "acknowledgement": {
+        "title": {
+          "type": "string",
+          "allowed_values": ["致谢", "致　谢"],
+          "default": "致谢",
+          "description": "标题文本"
+        },
+        "should_have_numbering": {
+          "type": "boolean",
+          "default": false,
+          "description": "是否应该有章节编号"
+        },
+        "position": {
+          "type": "string",
+          "allowed_values": ["last", "after_references"],
+          "default": "last",
+          "description": "位置"
+        }
+      }
+    },
+    "page_break_rules": {
+      "chapter_start": {
+        "new_page": {
+          "type": "boolean",
+          "default": false,
+          "description": "章节是否从新页开始"
+        },
+        "page_break_before": {
+          "type": "boolean",
+          "default": false,
+          "description": "章节前是否分页"
+        }
+      },
+      "special_sections": {
+        "abstract": {
+          "new_page": {
+            "type": "boolean",
+            "default": false,
+            "description": "摘要是否从新页开始"
+          }
+        },
+        "references": {
+          "new_page": {
+            "type": "boolean",
+            "default": true,
+            "description": "参考文献是否从新页开始"
+          }
+        }
+      },
+      "orphan_widow_control": {
+        "enabled": {
+          "type": "boolean",
+          "default": true,
+          "description": "是否启用孤行/寡行控制"
+        },
+        "orphan_lines": {
+          "type": "number",
+          "range": [1, 5],
+          "default": 2,
+          "description": "孤行最少行数"
+        },
+        "widow_lines": {
+          "type": "number",
+          "range": [1, 5],
+          "default": 2,
+          "description": "寡行最少行数"
+        }
+      }
+    }
+  },
+  
+  "extended_fields_guide": {
+    "description": "扩展字段处理指南：当学校的格式要求在完整指令系统中不存在时，使用此机制",
+    "usage": {
+      "when_to_use": "当Word文档中存在以下情况时，应使用扩展字段：1) 格式要求在format_rules或application_rules中找不到对应字段；2) 字段值不在allowed_values范围内；3) 存在特殊的格式规则（如特殊的页眉页脚格式、特殊的表格样式等）",
+      "how_to_use": "在子集指令系统中添加extended_fields字段，结构如下：",
+      "structure": {
+        "extended_fields": {
+          "type": "object",
+          "description": "扩展字段容器",
+          "properties": {
+            "format_rules": {
+              "type": "object",
+              "description": "格式规则扩展字段",
+              "example": {
+                "custom_font_style": {
+                  "name": "特殊字体样式",
+                  "value": "实际值",
+                  "description": "字段说明",
+                  "source": "从Word文档中提取的实际值"
+                }
+              }
+            },
+            "application_rules": {
+              "type": "object",
+              "description": "应用规则扩展字段",
+              "example": {
+                "custom_numbering": {
+                  "name": "特殊编号格式",
+                  "value": "实际值",
+                  "description": "字段说明",
+                  "source": "从Word文档中提取的实际值"
+                }
+              }
+            }
+          }
+        }
+      },
+      "requirements": {
+        "field_naming": "扩展字段名应使用下划线命名（snake_case），清晰描述字段用途",
+        "value_format": "扩展字段值应保持原始格式，不要转换",
+        "description": "每个扩展字段必须包含description字段，说明该字段的用途和来源",
+        "source": "每个扩展字段应包含source字段，说明该值是从Word文档的哪个部分提取的"
+      },
+      "validation": {
+        "note": "扩展字段不会进行格式规范校验（因为不在完整指令系统中），但会在自然语言描述中明确说明",
+        "consistency_check": "扩展字段应在自然语言格式要求中有明确描述"
+      }
+    }
+  }
+}

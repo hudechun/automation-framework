@@ -9,6 +9,7 @@ from typing import Dict, Any, Optional, TYPE_CHECKING
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from exceptions.exception import ServiceException
+from module_thesis.dao.template_dao import UniversalInstructionSystemDao
 from module_thesis.service.ai_generation_service import AiGenerationService
 from utils.log_util import logger
 
@@ -18,6 +19,13 @@ try:
     from docx.enum.text import WD_ALIGN_PARAGRAPH
     from docx.oxml.ns import qn
     DOCX_AVAILABLE = True
+    # 尝试获取版本信息
+    try:
+        import docx
+        docx_version = getattr(docx, '__version__', '未知版本')
+        logger.info(f"python-docx 已成功导入，版本: {docx_version}")
+    except:
+        logger.info("python-docx 已成功导入（无法获取版本信息）")
 except ImportError as e:
     DOCX_AVAILABLE = False
     # 为了类型注解，定义一个占位符类型
@@ -25,7 +33,17 @@ except ImportError as e:
         from docx import Document
     else:
         Document = None  # type: ignore
-    logger.warning(f"python-docx 未安装，Word文档处理功能将不可用。请运行: pip install python-docx。错误详情: {str(e)}")
+    import sys
+    import os
+    python_path = sys.executable
+    python_version = sys.version
+    error_detail = str(e)
+    logger.error(f"python-docx 导入失败！")
+    logger.error(f"  Python路径: {python_path}")
+    logger.error(f"  Python版本: {python_version}")
+    logger.error(f"  错误详情: {error_detail}")
+    logger.error(f"  请检查是否在正确的虚拟环境中运行，并执行: pip install python-docx")
+    logger.warning(f"python-docx 未安装，Word文档处理功能将不可用。请运行: pip install python-docx。错误详情: {error_detail}")
 
 
 class FormatService:
@@ -49,7 +67,16 @@ class FormatService:
         :return: 格式指令和文档分析结果
         """
         if not DOCX_AVAILABLE:
-            raise ServiceException(message='python-docx 未安装，无法处理Word文档。请运行: pip install python-docx')
+            import sys
+            python_path = sys.executable
+            error_msg = (
+                f'python-docx 未安装，无法处理Word文档。\n'
+                f'当前Python路径: {python_path}\n'
+                f'请执行以下命令安装: pip install python-docx\n'
+                f'如果使用虚拟环境，请确保已激活虚拟环境。'
+            )
+            logger.error(error_msg)
+            raise ServiceException(message=error_msg)
         
         if not os.path.exists(word_file_path):
             raise ServiceException(message=f'Word文档不存在: {word_file_path}')
@@ -70,75 +97,111 @@ class FormatService:
             print(f"[读取Word文档] 开始处理文件: {word_file_path}")
             logger.info(f"[读取Word文档] 开始处理文件: {word_file_path}")
             
-            # 读取Word文档
-            print(f"[读取Word文档] 步骤1/3: 打开Word文档...")
-            logger.info(f"[读取Word文档] 步骤1/3: 打开Word文档...")
+            # 读取Word文档并提取文本内容
+            print(f"[读取Word文档] 步骤1/2: 打开Word文档并提取文本内容...")
+            logger.info(f"[读取Word文档] 步骤1/2: 打开Word文档并提取文本内容...")
             doc = Document(word_file_path)
             para_count = len(doc.paragraphs)
-            print(f"[读取Word文档] 步骤1/3: Word文档打开成功，段落数: {para_count}")
-            logger.info(f"[读取Word文档] 步骤1/3: Word文档打开成功，段落数: {para_count}")
             
-            # 提取文档内容（文本、格式信息）
-            print(f"[读取Word文档] 步骤2/3: 提取文档内容和格式信息...")
-            logger.info(f"[读取Word文档] 步骤2/3: 提取文档内容和格式信息...")
-            document_content = cls._extract_document_content(doc)
-            print(f"[读取Word文档] 步骤2/3: 文档内容提取完成")
-            logger.info(f"[读取Word文档] 步骤2/3: 文档内容提取完成")
-            para_num = len(document_content.get('paragraphs', []))
-            heading_num = len(document_content.get('headings', {}))
-            style_num = len(document_content.get('styles', {}))
-            print(f"  提取的段落数: {para_num}")
-            print(f"  识别的标题数: {heading_num}")
-            print(f"  识别的样式数: {style_num}")
-            logger.info(f"  提取的段落数: {para_num}")
-            logger.info(f"  识别的标题数: {heading_num}")
-            logger.info(f"  识别的样式数: {style_num}")
-            if document_content.get('format_info'):
-                format_info = document_content['format_info']
-                format_str = f"  格式信息: 字体={format_info.get('font_name')}, 字号={format_info.get('font_size')}, 行距={format_info.get('line_spacing')}"
-                print(format_str)
-                logger.info(format_str)
+            # 提取文档文本内容（保留所有段落，包括空行）
+            document_text = cls._extract_document_text(doc)
+            text_length = len(document_text)
+            print(f"[读取Word文档] 步骤1/2: Word文档打开成功，段落数: {para_count}，文本长度: {text_length} 字符")
+            logger.info(f"[读取Word文档] 步骤1/2: Word文档打开成功，段落数: {para_count}，文本长度: {text_length} 字符")
             
-            # 使用AI分析文档格式并生成格式化指令
+            # 输出提取的文档文本内容（用于调试，显示前1000字符）
+            preview_length = min(1000, text_length)
+            text_preview = document_text[:preview_length]
+            if text_length > preview_length:
+                text_preview += f"\n\n[文档内容过长，已截断前{preview_length}字符，总长度: {text_length}字符]"
             print("=" * 100)
-            print(f"[读取Word文档] 步骤3/3: 准备使用AI分析格式并生成格式化指令...")
+            print("[读取Word文档] 📄 提取的文档文本内容（将提交给AI）：")
+            print("=" * 100)
+            print(text_preview)
+            print("=" * 100)
+            logger.info("=" * 100)
+            logger.info("[读取Word文档] 📄 提取的文档文本内容（将提交给AI）：")
+            logger.info("=" * 100)
+            logger.info(text_preview)
+            logger.info("=" * 100)
+            
+            # 直接将文档文本传给AI，让AI分析并生成格式化指令
+            print("=" * 100)
+            print(f"[读取Word文档] 步骤2/2: 将文档传给AI分析并生成格式化指令...")
             print("  即将调用AI模型，这可能需要一些时间...")
             print("=" * 100)
             import sys
             sys.stdout.flush()
             logger.info("=" * 100)
-            logger.info(f"[读取Word文档] 步骤3/3: 准备使用AI分析格式并生成格式化指令...")
+            logger.info(f"[读取Word文档] 步骤2/2: 将文档传给AI分析并生成格式化指令...")
             logger.info("=" * 100)
             
             try:
                 format_result = await cls._analyze_format_with_ai(
                     query_db,
-                    document_content,
+                    document_text,
                     config_id
                 )
                 format_instructions = format_result['json_instructions']
                 natural_language_description = format_result['natural_language_description']
                 print("=" * 100)
-                print(f"[读取Word文档] ✓ 步骤3/3: AI分析完成")
+                print(f"[读取Word文档] ✓ 步骤2/2: AI分析完成")
                 print(f"  自然语言描述长度: {len(natural_language_description)} 字符")
                 print(f"  JSON格式指令长度: {len(format_instructions)} 字符")
                 print("=" * 100)
                 sys.stdout.flush()
                 logger.info("=" * 100)
-                logger.info(f"[读取Word文档] ✓ 步骤3/3: AI分析完成")
+                logger.info(f"[读取Word文档] ✓ 步骤2/2: AI分析完成")
                 logger.info(f"  自然语言描述长度: {len(natural_language_description)} 字符")
                 logger.info(f"  JSON格式指令长度: {len(format_instructions)} 字符")
                 logger.info("=" * 100)
+                
+                # 校验格式指令（格式规范、一致性、数据质量）
+                # 注意：校验在AI分析完成后进行，不单独作为步骤
+                print(f"[读取Word文档] 校验格式指令...")
+                logger.info(f"[读取Word文档] 校验格式指令...")
+                
+                try:
+                    # 解析JSON指令
+                    format_instruction_data = json.loads(format_instructions) if isinstance(format_instructions, str) else format_instructions
+                    
+                    # 读取完整指令系统用于校验
+                    universal_instruction_system = await cls._get_universal_instruction_system(query_db)
+                    
+                    if universal_instruction_system:
+                        # 执行校验
+                        validation_result = cls._validate_instruction_system(
+                            natural_language_description,
+                            format_instruction_data,
+                            universal_instruction_system
+                        )
+                        
+                        if not validation_result['valid']:
+                            error_msg = f"格式指令校验失败: {', '.join(validation_result['errors'][:5])}"  # 只显示前5个错误
+                            logger.error(error_msg)
+                            print(f"[读取Word文档] ⚠ 校验警告: {error_msg}")
+                            # 不抛出异常，只记录警告，允许继续保存（因为数据质量校验已经修正了异常值）
+                        else:
+                            print(f"[读取Word文档] ✓ 格式指令校验通过")
+                            logger.info(f"[读取Word文档] ✓ 格式指令校验通过")
+                    else:
+                        logger.warning("未找到完整指令系统，跳过格式规范校验和一致性校验")
+                        print(f"[读取Word文档] ⚠ 未找到完整指令系统，跳过格式规范校验和一致性校验")
+                        
+                except Exception as e:
+                    logger.warning(f"格式指令校验过程出错: {str(e)}，继续保存指令")
+                    print(f"[读取Word文档] ⚠ 格式指令校验过程出错，继续保存指令")
+                
             except Exception as e:
                 print("=" * 100)
-                print(f"[读取Word文档] ✗ 步骤3/3: AI分析失败")
+                print(f"[读取Word文档] ✗ 步骤2/2: AI分析失败")
                 print(f"  错误: {str(e)}")
                 import traceback
                 print(traceback.format_exc())
                 print("=" * 100)
                 sys.stdout.flush()
                 logger.error("=" * 100)
-                logger.error(f"[读取Word文档] ✗ 步骤3/3: AI分析失败")
+                logger.error(f"[读取Word文档] ✗ 步骤2/2: AI分析失败")
                 logger.error(f"  错误: {str(e)}")
                 logger.error("=" * 100, exc_info=True)
                 raise
@@ -161,7 +224,7 @@ class FormatService:
             return {
                 'format_instructions': format_instructions,  # JSON格式指令（用于执行）
                 'natural_language_description': natural_language_description,  # 自然语言描述（用于展示）
-                'document_analysis': document_content,
+                'document_text': document_text,  # 文档文本内容
                 'file_path': word_file_path
             }
             
@@ -188,6 +251,41 @@ class FormatService:
             sys.stdout.flush()
             logger.error(f"[读取Word文档] 失败: {error_type} - {error_msg}", exc_info=True)
             raise ServiceException(message=f'读取Word文档失败: {error_msg}')
+    
+    @staticmethod
+    def _extract_document_text(doc: Any) -> str:
+        """
+        提取Word文档的文本内容（保留所有文字信息，不丢失任何文字）
+        
+        重要原则：
+        1. 所有有文字的段落都必须保留
+        2. 空行可以忽略，但空行前后的文字不能丢失
+        3. 确保"空两行"等文字说明完整保留
+        
+        :param doc: python-docx Document对象
+        :return: 文档文本内容（保留所有文字信息）
+        """
+        paragraphs_text = []
+        for para in doc.paragraphs:
+            text = para.text  # 获取原始文本（不strip，保留前后空格）
+            # 只要有文字（即使只有空格），都要保留
+            # 完全空的段落可以忽略（但保留换行以维持结构）
+            if text or text.strip():  # 有文字或只有空格都保留
+                paragraphs_text.append(text)
+            else:
+                # 完全空的段落，保留一个空行以维持文档结构
+                paragraphs_text.append('')
+        
+        # 合并段落，用换行符分隔
+        result = '\n'.join(paragraphs_text)
+        
+        # 验证：确保没有丢失文字
+        total_chars = sum(len(para.text) for para in doc.paragraphs)
+        extracted_chars = len(result.replace('\n', ''))
+        if extracted_chars < total_chars * 0.9:  # 如果提取的字符少于90%，可能有问题
+            logger.warning(f"文本提取可能不完整：原始字符数={total_chars}，提取字符数={extracted_chars}")
+        
+        return result
     
     @classmethod
     def _extract_document_content(cls, doc: Any) -> Dict[str, Any]:
@@ -251,7 +349,7 @@ class FormatService:
                     'italic': run.italic,
                     'underline': run.underline,
                     'font_name': run.font.name if run.font.name else None,
-                    'font_size': str(run.font.size) if run.font.size else None,
+                    'font_size': float(run.font.size.pt) if run.font.size and run.font.size.pt else None,  # 转换为磅值（浮点数）
                     'font_color': str(run.font.color.rgb) if run.font.color and run.font.color.rgb else None,
                 }
                 runs_info.append(run_info)
@@ -277,7 +375,7 @@ class FormatService:
                             heading_info = {
                                 'style_name': para.style.name,
                                 'font_name': runs_info[0]['font_name'] if runs_info else None,
-                                'font_size': runs_info[0]['font_size'] if runs_info else None,
+                                'font_size': float(runs_info[0]['font_size']) if runs_info and runs_info[0].get('font_size') is not None else None,
                                 'bold': runs_info[0]['bold'] if runs_info else None,
                                 'alignment': para_info['alignment'],
                             }
@@ -287,6 +385,15 @@ class FormatService:
                                     heading_info['spacing_before'] = str(para.paragraph_format.space_before)
                                 if para.paragraph_format.space_after:
                                     heading_info['spacing_after'] = str(para.paragraph_format.space_after)
+                            
+                            # 计算标题前后的空行数
+                            spacing_before_lines = cls._count_empty_lines_before(doc.paragraphs, idx)
+                            spacing_after_lines = cls._count_empty_lines_after(doc.paragraphs, idx)
+                            if spacing_before_lines > 0:
+                                heading_info['spacing_before_lines'] = spacing_before_lines
+                            if spacing_after_lines > 0:
+                                heading_info['spacing_after_lines'] = spacing_after_lines
+                            
                             content['headings'][f'h{heading_level}'] = heading_info
             
             # 识别特殊格式（目录、摘要、关键词、结论等）
@@ -297,6 +404,13 @@ class FormatService:
                         'title_para': para_info.copy(),
                         'entries': []
                     }
+                    # 计算目录标题前后的空行数
+                    title_before_lines = cls._count_empty_lines_before(doc.paragraphs, idx)
+                    title_after_lines = cls._count_empty_lines_after(doc.paragraphs, idx)
+                    if title_before_lines > 0:
+                        content['table_of_contents']['title_before_lines'] = title_before_lines
+                    if title_after_lines > 0:
+                        content['table_of_contents']['title_after_lines'] = title_after_lines
                 # 标记进入目录区域
                 content['_in_toc_section'] = True
             elif 'abstract' in para_text_lower or '摘要' in para.text:
@@ -360,7 +474,7 @@ class FormatService:
                             'runs': runs_info,
                             # 提取目录条目的字体和大小（从runs中提取，取第一个run的格式）
                             'font_name': runs_info[0]['font_name'] if runs_info else None,
-                            'font_size': runs_info[0]['font_size'] if runs_info else None,
+                            'font_size': float(runs_info[0]['font_size']) if runs_info and runs_info[0].get('font_size') is not None else None,
                             'alignment': para_info.get('alignment'),
                             'left_indent': left_indent,
                             'line_spacing': para_info.get('paragraph_format', {}).get('line_spacing'),
@@ -383,6 +497,39 @@ class FormatService:
                         'title_para': para_info.copy(),
                         'content_paras': []
                     }
+                    # 计算结论标题前后的空行数
+                    title_before_lines = cls._count_empty_lines_before(doc.paragraphs, idx)
+                    title_after_lines = cls._count_empty_lines_after(doc.paragraphs, idx)
+                    if title_before_lines > 0:
+                        content['conclusion']['title_before_lines'] = title_before_lines
+                    if title_after_lines > 0:
+                        content['conclusion']['title_after_lines'] = title_after_lines
+            elif '参考文献' in para.text or 'references' in para_text_lower or '参 考 文 献' in para.text:
+                if 'references' not in content:
+                    content['references'] = {
+                        'title_para': para_info.copy(),
+                        'entries': []
+                    }
+                    # 计算参考文献标题前后的空行数
+                    title_before_lines = cls._count_empty_lines_before(doc.paragraphs, idx)
+                    title_after_lines = cls._count_empty_lines_after(doc.paragraphs, idx)
+                    if title_before_lines > 0:
+                        content['references']['title_before_lines'] = title_before_lines
+                    if title_after_lines > 0:
+                        content['references']['title_after_lines'] = title_after_lines
+            elif '致谢' in para.text or '致　谢' in para.text or 'acknowledgement' in para_text_lower:
+                if 'acknowledgement' not in content:
+                    content['acknowledgement'] = {
+                        'title_para': para_info.copy(),
+                        'content_paras': []
+                    }
+                    # 计算致谢标题前后的空行数
+                    title_before_lines = cls._count_empty_lines_before(doc.paragraphs, idx)
+                    title_after_lines = cls._count_empty_lines_after(doc.paragraphs, idx)
+                    if title_before_lines > 0:
+                        content['acknowledgement']['title_before_lines'] = title_before_lines
+                    if title_after_lines > 0:
+                        content['acknowledgement']['title_after_lines'] = title_after_lines
         
         # 提取默认样式信息（从正文段落，取多个段落进行统计分析）
         body_paragraphs = [p for p in doc.paragraphs if p.style and 'heading' not in p.style.name.lower() and 'title' not in p.style.name.lower()]
@@ -397,8 +544,8 @@ class FormatService:
                     for run in para.runs:
                         if run.font.name:
                             font_names.append(run.font.name)
-                        if run.font.size:
-                            font_sizes.append(str(run.font.size))
+                        if run.font.size and run.font.size.pt:
+                            font_sizes.append(float(run.font.size.pt))  # 转换为磅值（浮点数）
             
             # 使用最常见的字体和字号
             if font_names:
@@ -473,18 +620,73 @@ class FormatService:
         
         return content
     
+    @staticmethod
+    def _count_empty_lines_before(paragraphs: list, current_idx: int) -> int:
+        """
+        计算指定段落之前的连续空行数
+        
+        :param paragraphs: 段落列表
+        :param current_idx: 当前段落索引
+        :return: 空行数
+        """
+        if current_idx <= 0:
+            return 0
+        
+        empty_count = 0
+        # 从当前段落向前查找连续的空段落
+        for i in range(current_idx - 1, -1, -1):
+            para = paragraphs[i]
+            # 判断是否为空段落：文本为空或只包含空白字符
+            if not para.text or para.text.strip() == '':
+                empty_count += 1
+            else:
+                # 遇到非空段落，停止计数
+                break
+        
+        return empty_count
+    
+    @staticmethod
+    def _count_empty_lines_after(paragraphs: list, current_idx: int) -> int:
+        """
+        计算指定段落之后的连续空行数
+        
+        :param paragraphs: 段落列表
+        :param current_idx: 当前段落索引
+        :return: 空行数
+        """
+        if current_idx >= len(paragraphs) - 1:
+            return 0
+        
+        empty_count = 0
+        # 从当前段落向后查找连续的空段落
+        for i in range(current_idx + 1, len(paragraphs)):
+            para = paragraphs[i]
+            # 判断是否为空段落：文本为空或只包含空白字符
+            if not para.text or para.text.strip() == '':
+                empty_count += 1
+            else:
+                # 遇到非空段落，停止计数
+                break
+        
+        return empty_count
+    
     @classmethod
     async def _analyze_format_with_ai(
         cls,
         query_db: AsyncSession,
-        document_content: Dict[str, Any],
+        document_text: str,
         config_id: Optional[int] = None
     ) -> Dict[str, str]:
         """
-        使用AI分析文档格式并生成格式化指令（方案B：一次生成两个输出）
+        使用AI直接分析文档文本并生成格式化指令
+        
+        优化后的流程：直接将文档文本传给AI，让AI一步完成：
+        1. 理解格式要求
+        2. 生成自然语言描述
+        3. 生成子集指令系统
         
         :param query_db: 数据库会话
-        :param document_content: 文档内容
+        :param document_text: 文档文本内容
         :param config_id: AI模型配置ID（可选）
         :return: 包含自然语言描述和JSON指令的字典
             {
@@ -492,32 +694,108 @@ class FormatService:
                 'json_instructions': 'JSON格式指令（用于执行）'
             }
         """
+        print("[AI格式分析] 开始分析文档格式...")
+        logger.info("[AI格式分析] 开始分析文档格式...")
+        
+        # 1. 读取完整指令系统
+        print("[AI格式分析] 读取完整指令系统...")
+        logger.info("[AI格式分析] 读取完整指令系统...")
+        universal_instruction_system = await cls._get_universal_instruction_system(query_db)
+        
+        if not universal_instruction_system:
+            logger.warning("未找到完整指令系统，将使用简化方法生成指令")
+            # 如果没有完整指令系统，使用简化方法
+            return await cls._analyze_format_with_ai_simple(query_db, document_text, config_id)
+        
+        print(f"[AI格式分析] ✓ 完整指令系统读取完成（版本: {universal_instruction_system.get('version', 'N/A')}）")
+        logger.info(f"[AI格式分析] ✓ 完整指令系统读取完成（版本: {universal_instruction_system.get('version', 'N/A')}）")
+        
+        # 2. 直接将文档文本传给AI，让AI分析并生成格式化指令
+        print("[AI格式分析] 将文档传给AI分析并生成格式化指令...")
+        logger.info("[AI格式分析] 将文档传给AI分析并生成格式化指令...")
+        result = await cls._generate_format_instructions_directly(
+            query_db,
+            document_text,
+            universal_instruction_system,
+            config_id
+        )
+        natural_language = result['natural_language_description']
+        subset_instruction = result['subset_instruction']
+        print(f"[AI格式分析] ✓ AI分析完成")
+        logger.info(f"[AI格式分析] ✓ AI分析完成")
+        
+        # 3. 打印生成的内容
+        print("=" * 100)
+        print("[AI格式分析] 📄 AI生成的格式化内容：")
+        print("=" * 100)
+        print("【自然语言格式描述】")
+        print(natural_language[:500] + "..." if len(natural_language) > 500 else natural_language)
+        print("=" * 100)
+        print("【JSON格式指令】")
+        subset_instruction_json = json.dumps(subset_instruction, ensure_ascii=False, indent=2)
+        print(subset_instruction_json[:500] + "..." if len(subset_instruction_json) > 500 else subset_instruction_json)
+        print("=" * 100)
+        import sys
+        sys.stdout.flush()
+        
+        logger.info("=" * 100)
+        logger.info("[AI格式分析] 📄 AI生成的格式化内容：")
+        logger.info("=" * 100)
+        logger.info("【自然语言格式描述】")
+        logger.info(natural_language[:500] + "..." if len(natural_language) > 500 else natural_language)
+        logger.info("=" * 100)
+        logger.info("【JSON格式指令】")
+        logger.info(subset_instruction_json[:500] + "..." if len(subset_instruction_json) > 500 else subset_instruction_json)
+        logger.info("=" * 100)
+        
+        # 3. 验证和修正格式指令（动态修正异常值）
+        print("[AI格式分析] 验证和修正格式指令...")
+        logger.info("[AI格式分析] 验证和修正格式指令...")
+        
+        try:
+            # 立即验证和修正（动态修正异常值）
+            validated_config = cls._validate_and_fix_format_config(subset_instruction)
+            subset_instruction = validated_config
+            
+            print(f"[AI格式分析] ✓ 格式指令验证和修正完成")
+            logger.info(f"[AI格式分析] ✓ 格式指令验证和修正完成")
+        except Exception as e:
+            logger.warning(f"格式指令验证失败: {str(e)}，使用原始指令")
+            print(f"[AI格式分析] ⚠ 格式指令验证失败，使用原始指令")
+        
+        print(f"[AI格式分析] ✓ 格式分析完成")
+        logger.info(f"[AI格式分析] ✓ 格式分析完成")
+        
+        return {
+            'natural_language_description': natural_language,
+            'json_instructions': json.dumps(subset_instruction, ensure_ascii=False, indent=2)
+        }
+    
+    @classmethod
+    async def _analyze_format_with_ai_legacy(
+        cls,
+        query_db: AsyncSession,
+        document_content: Dict[str, Any],
+        config_id: Optional[int] = None
+    ) -> Dict[str, str]:
+        """
+        原有的AI分析方法（作为回退方案）
+        
+        :param query_db: 数据库会话
+        :param document_content: 文档内容
+        :param config_id: AI模型配置ID（可选）
+        :return: 包含自然语言描述和JSON指令的字典
+        """
         # 构建提示词
-        print("[AI格式分析] 步骤1/4: 构建格式分析提示词...")
-        logger.info("[AI格式分析] 步骤1/4: 构建格式分析提示词...")
+        print("[AI格式分析] 使用原有方法生成指令...")
+        logger.info("[AI格式分析] 使用原有方法生成指令...")
         prompt = cls._build_format_analysis_prompt(document_content)
         prompt_len = len(prompt)
-        print(f"[AI格式分析] 步骤1/4: 提示词构建完成，长度: {prompt_len} 字符")
-        logger.info(f"[AI格式分析] 步骤1/4: 提示词构建完成，长度: {prompt_len} 字符")
-        logger.debug(f"[AI格式分析] 提示词前500字符: {prompt[:500]}")
         
-        # 获取AI提供商（使用私有方法，需要直接调用）
-        # 由于_get_ai_provider是类方法，可以直接调用
-        print(f"[AI格式分析] 步骤2/4: 获取AI模型配置...")
-        logger.info(f"[AI格式分析] 步骤2/4: 获取AI模型配置...")
+        # 获取AI提供商
         llm_provider, model_config = await AiGenerationService._get_ai_provider(query_db, config_id)
-        print(f"[AI格式分析] 步骤2/4: AI模型配置获取完成")
-        logger.info(f"[AI格式分析] 步骤2/4: AI模型配置获取完成")
-        if model_config:
-            # model_config 是 Pydantic 模型对象，直接访问属性
-            model_name = getattr(model_config, 'model_name', 'N/A') if hasattr(model_config, 'model_name') else 'N/A'
-            provider = getattr(model_config, 'provider', 'N/A') if hasattr(model_config, 'provider') else 'N/A'
-            print(f"  模型名称: {model_name}")
-            print(f"  提供商: {provider}")
-            logger.info(f"  模型名称: {model_name}")
-            logger.info(f"  提供商: {provider}")
         
-        # 调用AI分析（方案B：一次生成两个输出）
+        # 调用AI分析
         messages = [
             {
                 "role": "system",
@@ -526,108 +804,29 @@ class FormatService:
             {"role": "user", "content": prompt}
         ]
         
-        print("=" * 100)
-        print(f"[AI格式分析] 步骤3/4: 准备调用AI模型进行格式分析...")
-        print(f"  提示词长度: {prompt_len} 字符")
-        print(f"  消息数量: {len(messages)}")
-        print(f"  AI提供商: {llm_provider}")
-        print("=" * 100)
-        import sys
-        sys.stdout.flush()
-        logger.info("=" * 100)
-        logger.info(f"[AI格式分析] 步骤3/4: 准备调用AI模型进行格式分析...")
-        logger.info(f"  提示词长度: {prompt_len} 字符")
-        logger.info(f"  消息数量: {len(messages)}")
-        logger.info("=" * 100)
-        
-        # 增加 max_tokens 以支持更详细的格式信息输出
-        print("=" * 100)
-        print("[AI格式分析] ⏳ 正在调用AI模型，等待响应...")
-        print("  这可能需要几秒到几十秒，请耐心等待...")
-        print("=" * 100)
-        sys.stdout.flush()
-        
         try:
-            # 设置超时时间（120秒）和增加max_tokens
             import asyncio
             response = await asyncio.wait_for(
                 llm_provider.chat(messages, temperature=0.3, max_tokens=4000),
-                timeout=120.0  # 120秒超时
+                timeout=120.0
             )
-            response_len = len(response) if response else 0
             
-            print("=" * 100)
-            print(f"[AI格式分析] ✓ 步骤3/4: AI分析完成！")
-            print(f"  响应长度: {response_len} 字符")
-            print(f"  响应前200字符: {response[:200] if response else 'N/A'}")
-            print("=" * 100)
-            sys.stdout.flush()
+            # 解析AI响应
+            result = cls._parse_ai_format_response(response)
             
-            logger.info("=" * 100)
-            logger.info(f"[AI格式分析] ✓ 步骤3/4: AI分析完成！")
-            logger.info(f"  响应长度: {response_len} 字符")
-            logger.info("=" * 100)
-        except asyncio.TimeoutError:
-            error_msg = "AI格式分析超时（超过120秒），请稍后重试或检查网络连接"
-            print("=" * 100)
-            print(f"[AI格式分析] ✗ AI调用超时")
-            print(f"  错误信息: {error_msg}")
-            print("=" * 100)
-            sys.stdout.flush()
-            logger.error("=" * 100)
-            logger.error(f"[AI格式分析] ✗ AI调用超时")
-            logger.error("=" * 100)
-            raise ServiceException(message=error_msg)
+            # 验证和修正
+            try:
+                format_config = json.loads(result['json_instructions']) if isinstance(result['json_instructions'], str) else result['json_instructions']
+                validated_config = cls._validate_and_fix_format_config(format_config)
+                result['json_instructions'] = json.dumps(validated_config, ensure_ascii=False, indent=2)
+            except Exception as e:
+                logger.warning(f"格式指令验证失败: {str(e)}，使用原始指令")
+            
+            return result
+            
         except Exception as e:
-            error_type = type(e).__name__
-            error_msg = str(e)
-            print("=" * 100)
-            print(f"[AI格式分析] ✗ AI调用失败: {error_msg}")
-            print(f"  错误类型: {error_type}")
-            import traceback
-            print(traceback.format_exc())
-            print("=" * 100)
-            sys.stdout.flush()
-            logger.error("=" * 100)
-            logger.error(f"[AI格式分析] ✗ AI调用失败: {error_msg}")
-            logger.error(f"  错误类型: {error_type}")
-            logger.error("=" * 100, exc_info=True)
-            raise
-        
-        # 解析AI响应，提取自然语言描述和JSON指令
-        print(f"[AI格式分析] 步骤4/4: 解析AI响应，提取自然语言描述和JSON指令...")
-        logger.info(f"[AI格式分析] 步骤4/4: 解析AI响应，提取自然语言描述和JSON指令...")
-        
-        result = cls._parse_ai_format_response(response)
-        
-        # 打印AI生成的格式化内容（按用户要求）
-        # 同时打印到控制台（方便调试）- 确保输出可见
-        print("=" * 100)
-        print("[AI格式分析] 📄 AI读取Word文档，生成的格式化内容：")
-        print("=" * 100)
-        print("【自然语言格式描述】")
-        print(result['natural_language_description'])
-        print("=" * 100)
-        print("【JSON格式指令】")
-        print(result['json_instructions'][:500] + "..." if len(result['json_instructions']) > 500 else result['json_instructions'])
-        print("=" * 100)
-        import sys
-        sys.stdout.flush()
-        
-        logger.info("=" * 100)
-        logger.info("[AI格式分析] 📄 AI读取Word文档，生成的格式化内容：")
-        logger.info("=" * 100)
-        logger.info("【自然语言格式描述】")
-        logger.info(result['natural_language_description'])
-        logger.info("=" * 100)
-        logger.info("【JSON格式指令】")
-        logger.info(result['json_instructions'][:500] + "..." if len(result['json_instructions']) > 500 else result['json_instructions'])
-        logger.info("=" * 100)
-        
-        print(f"[AI格式分析] ✓ 步骤4/4: 格式分析完成")
-        logger.info(f"[AI格式分析] ✓ 步骤4/4: 格式分析完成")
-        
-        return result
+            logger.error(f"AI分析失败: {str(e)}", exc_info=True)
+            raise ServiceException(message=f"AI分析失败: {str(e)}")
     
     @classmethod
     def _parse_ai_format_response(cls, response: str) -> Dict[str, str]:
@@ -933,8 +1132,10 @@ class FormatService:
         "font_size_pt": 字体大小（数字，单位：磅，必须从文档中提取）,
         "bold": true/false（必须从文档中提取）,
         "alignment": "对齐方式（必须从文档中提取，如：left、center）",
-        "spacing_before_pt": 段前距（数字，单位：磅，必须从文档中提取）,
-        "spacing_after_pt": 段后距（数字，单位：磅，必须从文档中提取）,
+        "spacing_before_pt": 段前距（数字，单位：磅，必须从文档中提取，可选，如果提供了spacing_before_lines则此字段可选）,
+        "spacing_after_pt": 段后距（数字，单位：磅，必须从文档中提取，可选，如果提供了spacing_after_lines则此字段可选）,
+        "spacing_before_lines": 标题前空行数（数字，0-10，优先使用此字段。如果Word文档中明确提到"空X行"，直接使用此字段。如果只有磅数信息，可以转换为空行数）,
+        "spacing_after_lines": 标题后空行数（数字，0-10，优先使用此字段。如果Word文档中明确提到"空X行"，直接使用此字段。如果只有磅数信息，可以转换为空行数）,
         "keep_with_next": true/false（可选，标题是否与下一段同页）
       }},
       "h2": {{
@@ -942,16 +1143,20 @@ class FormatService:
         "font_size_pt": 字体大小（数字，单位：磅，必须从文档中提取）,
         "bold": true/false（必须从文档中提取）,
         "alignment": "对齐方式（必须从文档中提取）",
-        "spacing_before_pt": 段前距（数字，单位：磅，必须从文档中提取）,
-        "spacing_after_pt": 段后距（数字，单位：磅，必须从文档中提取）
+        "spacing_before_pt": 段前距（数字，单位：磅，必须从文档中提取，可选，如果提供了spacing_before_lines则此字段可选）,
+        "spacing_after_pt": 段后距（数字，单位：磅，必须从文档中提取，可选，如果提供了spacing_after_lines则此字段可选）,
+        "spacing_before_lines": 标题前空行数（数字，0-10，优先使用此字段）,
+        "spacing_after_lines": 标题后空行数（数字，0-10，优先使用此字段）
       }},
       "h3": {{
         "font_name": "字体名称（必须从文档中提取）",
         "font_size_pt": 字体大小（数字，单位：磅，必须从文档中提取）,
         "bold": true/false（必须从文档中提取）,
         "alignment": "对齐方式（必须从文档中提取）",
-        "spacing_before_pt": 段前距（数字，单位：磅，必须从文档中提取）,
-        "spacing_after_pt": 段后距（数字，单位：磅，必须从文档中提取）
+        "spacing_before_pt": 段前距（数字，单位：磅，必须从文档中提取，可选，如果提供了spacing_before_lines则此字段可选）,
+        "spacing_after_pt": 段后距（数字，单位：磅，必须从文档中提取，可选，如果提供了spacing_after_lines则此字段可选）,
+        "spacing_before_lines": 标题前空行数（数字，0-10，优先使用此字段）,
+        "spacing_after_lines": 标题后空行数（数字，0-10，优先使用此字段）
       }}
     }},
     "paragraph": {{
@@ -1025,14 +1230,20 @@ class FormatService:
         "title_font": "结论标题字体（必须从文档中提取）",
         "title_size_pt": 结论标题字号（数字，单位：磅，必须从文档中提取）,
         "title_alignment": "结论标题对齐方式（必须从文档中提取）",
-        "title_spacing_before_pt": 标题前间距（数字，单位：磅，必须从文档中提取）,
-        "title_spacing_after_pt": 标题后间距（数字，单位：磅，必须从文档中提取）
+        "title_spacing_before_pt": 标题前间距（数字，单位：磅，必须从文档中提取，可选，如果提供了title_before_lines则此字段可选）,
+        "title_spacing_after_pt": 标题后间距（数字，单位：磅，必须从文档中提取，可选，如果提供了title_after_lines则此字段可选）,
+        "title_before_lines": 标题前空行数（数字，0-10，优先使用此字段。如果Word文档中明确提到"空X行"，直接使用此字段）,
+        "title_after_lines": 标题后空行数（数字，0-10，优先使用此字段。如果Word文档中明确提到"空X行"，直接使用此字段）
       }},
       "references": {{
         "title_text": "参考文献标题文本（如：参 考 文 献等，必须从文档中提取）",
         "title_font": "参考文献标题字体（必须从文档中提取）",
         "title_size_pt": 参考文献标题字号（数字，单位：磅，必须从文档中提取）,
         "title_alignment": "参考文献标题对齐方式（必须从文档中提取）",
+        "title_spacing_before_pt": 标题前间距（数字，单位：磅，必须从文档中提取，可选，如果提供了title_before_lines则此字段可选）,
+        "title_spacing_after_pt": 标题后间距（数字，单位：磅，必须从文档中提取，可选，如果提供了title_after_lines则此字段可选）,
+        "title_before_lines": 标题前空行数（数字，0-10，优先使用此字段。如果Word文档中明确提到"空X行"，直接使用此字段）,
+        "title_after_lines": 标题后空行数（数字，0-10，优先使用此字段。如果Word文档中明确提到"空X行"，直接使用此字段）,
         "item_font": "参考文献条目字体（必须从文档中提取）",
         "item_size_pt": 参考文献条目字号（数字，单位：磅，必须从文档中提取）,
         "line_spacing": 行距倍数（数字，必须从文档中提取）,
@@ -1048,16 +1259,20 @@ class FormatService:
         "title_font": "致谢标题字体（必须从文档中提取）",
         "title_size_pt": "致谢标题字号（数字，单位：磅，必须从文档中提取）",
         "title_alignment": "致谢标题对齐方式（必须从文档中提取）",
-        "title_spacing_before_pt": 标题前间距（数字，单位：磅，必须从文档中提取）,
-        "title_spacing_after_pt": 标题后间距（数字，单位：磅，必须从文档中提取）
+        "title_spacing_before_pt": 标题前间距（数字，单位：磅，必须从文档中提取，可选，如果提供了title_before_lines则此字段可选）,
+        "title_spacing_after_pt": 标题后间距（数字，单位：磅，必须从文档中提取，可选，如果提供了title_after_lines则此字段可选）,
+        "title_before_lines": 标题前空行数（数字，0-10，优先使用此字段。如果Word文档中明确提到"空X行"，直接使用此字段）,
+        "title_after_lines": 标题后空行数（数字，0-10，优先使用此字段。如果Word文档中明确提到"空X行"，直接使用此字段）
       }},
       "table_of_contents": {{
         "title_text": "目录标题文本（如：目 录等，必须从文档中提取）",
         "title_font": "目录标题字体（必须从文档中提取）",
         "title_size_pt": 目录标题字号（数字，单位：磅，必须从文档中提取）,
         "title_alignment": "目录标题对齐方式（必须从文档中提取）",
-        "title_spacing_before_pt": 标题前间距（数字，单位：磅，必须从文档中提取）,
-        "title_spacing_after_pt": 标题后间距（数字，单位：磅，必须从文档中提取）,
+        "title_spacing_before_pt": 标题前间距（数字，单位：磅，必须从文档中提取，可选，如果提供了title_before_lines则此字段可选）,
+        "title_spacing_after_pt": 标题后间距（数字，单位：磅，必须从文档中提取，可选，如果提供了title_after_lines则此字段可选）,
+        "title_before_lines": 标题前空行数（数字，0-10，优先使用此字段。如果Word文档中明确提到"空X行"，直接使用此字段）,
+        "title_after_lines": 标题后空行数（数字，0-10，优先使用此字段。如果Word文档中明确提到"空X行"，直接使用此字段）,
         "entry_levels": [1, 2, 3]（目录支持的级别，必须从文档中提取）,
         "entry_format": {{
           "level_1": {{
@@ -1201,7 +1416,16 @@ class FormatService:
         :return: 格式化结果
         """
         if not DOCX_AVAILABLE:
-            raise ServiceException(message='python-docx 未安装，无法格式化Word文档。请运行: pip install python-docx')
+            import sys
+            python_path = sys.executable
+            error_msg = (
+                f'python-docx 未安装，无法格式化Word文档。\n'
+                f'当前Python路径: {python_path}\n'
+                f'请执行以下命令安装: pip install python-docx\n'
+                f'如果使用虚拟环境，请确保已激活虚拟环境。'
+            )
+            logger.error(error_msg)
+            raise ServiceException(message=error_msg)
         
         try:
             # 如果没有提供格式指令，需要先读取Word文档并提取
@@ -1351,10 +1575,53 @@ class FormatService:
                     # 转换字段名
                     if 'font_size_pt' in heading:
                         heading['font_size'] = heading.pop('font_size_pt')
+                    
+                    # 优先使用空行数字段，如果没有则从磅数字段转换
+                    spacing_before_lines = heading.get('spacing_before_lines', None)
+                    spacing_after_lines = heading.get('spacing_after_lines', None)
+                    
+                    if spacing_before_lines is None:
+                        # 如果没有空行数字段，则从磅数字段转换
+                        spacing_before_pt = heading.get('spacing_before_pt', 0)
+                        # 转换逻辑：24磅=1行，小于24磅但大于0视为1行
+                        if spacing_before_pt >= 24:
+                            spacing_before_lines = int(spacing_before_pt / 24)
+                        elif spacing_before_pt > 0:
+                            spacing_before_lines = 1
+                        else:
+                            spacing_before_lines = 0
+                    else:
+                        spacing_before_lines = int(spacing_before_lines) if spacing_before_lines is not None else 0
+                    
+                    if spacing_after_lines is None:
+                        # 如果没有空行数字段，则从磅数字段转换
+                        spacing_after_pt = heading.get('spacing_after_pt', 0)
+                        # 转换逻辑：24磅=1行，小于24磅但大于0视为1行
+                        if spacing_after_pt >= 24:
+                            spacing_after_lines = int(spacing_after_pt / 24)
+                        elif spacing_after_pt > 0:
+                            spacing_after_lines = 1
+                        else:
+                            spacing_after_lines = 0
+                    else:
+                        spacing_after_lines = int(spacing_after_lines) if spacing_after_lines is not None else 0
+                    
+                    # 保留磅数字段（向后兼容），但优先使用空行数
                     if 'spacing_before_pt' in heading:
                         heading['spacing_before'] = heading.pop('spacing_before_pt')
                     if 'spacing_after_pt' in heading:
                         heading['spacing_after'] = heading.pop('spacing_after_pt')
+                    
+                    # 添加空行数字段到布局规则
+                    if 'section_spacing' not in extracted_layout_rules:
+                        extracted_layout_rules['section_spacing'] = {}
+                    if 'headings' not in extracted_layout_rules['section_spacing']:
+                        extracted_layout_rules['section_spacing']['headings'] = {}
+                    extracted_layout_rules['section_spacing']['headings'][level] = {
+                        'before': spacing_before_lines,
+                        'after': spacing_after_lines
+                    }
+                    
                     headings[level] = heading
             legacy_format['headings'] = headings
         
@@ -1423,6 +1690,42 @@ class FormatService:
                         'line_spacing': 1.5
                     }
                 }
+                
+                # 提取结论标题前后空行设置
+                title_before_lines = conclusion.get('title_before_lines', None)
+                title_after_lines = conclusion.get('title_after_lines', None)
+                
+                if title_before_lines is None:
+                    title_spacing_before_pt = conclusion.get('title_spacing_before_pt', 0)
+                    # 转换逻辑：24磅=1行，小于24磅但大于0视为1行
+                    if title_spacing_before_pt >= 24:
+                        title_before_lines = int(title_spacing_before_pt / 24)
+                    elif title_spacing_before_pt > 0:
+                        title_before_lines = 1
+                    else:
+                        title_before_lines = 0
+                else:
+                    title_before_lines = int(title_before_lines) if title_before_lines is not None else 0
+                
+                if title_after_lines is None:
+                    title_spacing_after_pt = conclusion.get('title_spacing_after_pt', 0)
+                    # 转换逻辑：24磅=1行，小于24磅但大于0视为1行
+                    if title_spacing_after_pt >= 24:
+                        title_after_lines = int(title_spacing_after_pt / 24)
+                    elif title_spacing_after_pt > 0:
+                        title_after_lines = 1
+                    else:
+                        title_after_lines = 0
+                else:
+                    title_after_lines = int(title_after_lines) if title_after_lines is not None else 0
+                
+                if 'section_spacing' not in extracted_layout_rules:
+                    extracted_layout_rules['section_spacing'] = {}
+                extracted_layout_rules['section_spacing']['conclusion'] = {
+                    'title_before': title_before_lines,
+                    'title_after': title_after_lines
+                }
+                logger.info(f"  提取结论标题空行设置: 前{title_before_lines}行, 后{title_after_lines}行")
             
             # 转换目录
             if 'table_of_contents' in special_sections:
@@ -1443,21 +1746,35 @@ class FormatService:
                 }
                 
                 # 提取目录标题前后空行设置（转换为布局规则）
-                # 新格式：title_spacing_before_pt 和 title_spacing_after_pt（单位：磅）
-                # 需要转换为空行数：通常24磅=1行，但这里更精确地处理
-                title_spacing_before_pt = toc.get('title_spacing_before_pt', 0)
-                title_spacing_after_pt = toc.get('title_spacing_after_pt', 0)
+                # 优先使用空行数字段（title_before_lines、title_after_lines）
+                # 如果没有空行数字段，则从磅数字段转换（保持向后兼容）
+                title_before_lines = toc.get('title_before_lines', None)
+                title_after_lines = toc.get('title_after_lines', None)
                 
-                # 将磅数转换为空行数（假设1行≈12磅，但更常见的是24磅=1行）
-                # 为了更准确，我们使用：如果>=24磅，则转换为行数（24磅=1行）
-                title_before_lines = int(title_spacing_before_pt / 24) if title_spacing_before_pt >= 24 else (1 if title_spacing_before_pt > 0 else 0)
-                title_after_lines = int(title_spacing_after_pt / 24) if title_spacing_after_pt >= 24 else (1 if title_spacing_after_pt > 0 else 0)
+                # 如果没有空行数字段，则从磅数字段转换
+                if title_before_lines is None:
+                    title_spacing_before_pt = toc.get('title_spacing_before_pt', 0)
+                    # 转换逻辑：24磅=1行，小于24磅但大于0视为1行
+                    if title_spacing_before_pt >= 24:
+                        title_before_lines = int(title_spacing_before_pt / 24)
+                    elif title_spacing_before_pt > 0:
+                        title_before_lines = 1
+                    else:
+                        title_before_lines = 0
+                else:
+                    title_before_lines = int(title_before_lines) if title_before_lines is not None else 0
                 
-                # 如果间距值较小（<24磅），但大于0，也视为1行
-                if 0 < title_spacing_before_pt < 24:
-                    title_before_lines = 1
-                if 0 < title_spacing_after_pt < 24:
-                    title_after_lines = 1
+                if title_after_lines is None:
+                    title_spacing_after_pt = toc.get('title_spacing_after_pt', 0)
+                    # 转换逻辑：24磅=1行，小于24磅但大于0视为1行
+                    if title_spacing_after_pt >= 24:
+                        title_after_lines = int(title_spacing_after_pt / 24)
+                    elif title_spacing_after_pt > 0:
+                        title_after_lines = 1
+                    else:
+                        title_after_lines = 0
+                else:
+                    title_after_lines = int(title_after_lines) if title_after_lines is not None else 0
                 
                 # 添加到布局规则
                 if 'section_spacing' not in extracted_layout_rules:
@@ -1466,7 +1783,7 @@ class FormatService:
                     'title_before': title_before_lines,
                     'title_after': title_after_lines
                 }
-                logger.info(f"  提取目录标题空行设置: 前{title_before_lines}行（{title_spacing_before_pt}磅）, 后{title_after_lines}行（{title_spacing_after_pt}磅）")
+                logger.info(f"  提取目录标题空行设置: 前{title_before_lines}行, 后{title_after_lines}行")
             
             # 转换参考文献
             if 'references' in special_sections:
@@ -1484,6 +1801,42 @@ class FormatService:
                         'line_spacing': refs.get('line_spacing', 1.5)
                     }
                 }
+                
+                # 提取参考文献标题前后空行设置
+                title_before_lines = refs.get('title_before_lines', None)
+                title_after_lines = refs.get('title_after_lines', None)
+                
+                if title_before_lines is None:
+                    title_spacing_before_pt = refs.get('title_spacing_before_pt', 0)
+                    # 转换逻辑：24磅=1行，小于24磅但大于0视为1行
+                    if title_spacing_before_pt >= 24:
+                        title_before_lines = int(title_spacing_before_pt / 24)
+                    elif title_spacing_before_pt > 0:
+                        title_before_lines = 1
+                    else:
+                        title_before_lines = 0
+                else:
+                    title_before_lines = int(title_before_lines) if title_before_lines is not None else 0
+                
+                if title_after_lines is None:
+                    title_spacing_after_pt = refs.get('title_spacing_after_pt', 0)
+                    # 转换逻辑：24磅=1行，小于24磅但大于0视为1行
+                    if title_spacing_after_pt >= 24:
+                        title_after_lines = int(title_spacing_after_pt / 24)
+                    elif title_spacing_after_pt > 0:
+                        title_after_lines = 1
+                    else:
+                        title_after_lines = 0
+                else:
+                    title_after_lines = int(title_after_lines) if title_after_lines is not None else 0
+                
+                if 'section_spacing' not in extracted_layout_rules:
+                    extracted_layout_rules['section_spacing'] = {}
+                extracted_layout_rules['section_spacing']['references'] = {
+                    'title_before': title_before_lines,
+                    'title_after': title_after_lines
+                }
+                logger.info(f"  提取参考文献标题空行设置: 前{title_before_lines}行, 后{title_after_lines}行")
             
             # 转换致谢
             if 'acknowledgement' in special_sections:
@@ -1501,6 +1854,42 @@ class FormatService:
                         'line_spacing': 1.5
                     }
                 }
+                
+                # 提取致谢标题前后空行设置
+                title_before_lines = ack.get('title_before_lines', None)
+                title_after_lines = ack.get('title_after_lines', None)
+                
+                if title_before_lines is None:
+                    title_spacing_before_pt = ack.get('title_spacing_before_pt', 0)
+                    # 转换逻辑：24磅=1行，小于24磅但大于0视为1行
+                    if title_spacing_before_pt >= 24:
+                        title_before_lines = int(title_spacing_before_pt / 24)
+                    elif title_spacing_before_pt > 0:
+                        title_before_lines = 1
+                    else:
+                        title_before_lines = 0
+                else:
+                    title_before_lines = int(title_before_lines) if title_before_lines is not None else 0
+                
+                if title_after_lines is None:
+                    title_spacing_after_pt = ack.get('title_spacing_after_pt', 0)
+                    # 转换逻辑：24磅=1行，小于24磅但大于0视为1行
+                    if title_spacing_after_pt >= 24:
+                        title_after_lines = int(title_spacing_after_pt / 24)
+                    elif title_spacing_after_pt > 0:
+                        title_after_lines = 1
+                    else:
+                        title_after_lines = 0
+                else:
+                    title_after_lines = int(title_after_lines) if title_after_lines is not None else 0
+                
+                if 'section_spacing' not in extracted_layout_rules:
+                    extracted_layout_rules['section_spacing'] = {}
+                extracted_layout_rules['section_spacing']['acknowledgement'] = {
+                    'title_before': title_before_lines,
+                    'title_after': title_after_lines
+                }
+                logger.info(f"  提取致谢标题空行设置: 前{title_before_lines}行, 后{title_after_lines}行")
             
             if special_formats:
                 legacy_format['special_formats'] = special_formats
@@ -1566,17 +1955,28 @@ class FormatService:
             logger.warning(f"默认字体可能是误识别（{font_name}），但保留原值以支持不同学校格式")
             # 不强制修正，保留原值
         
-        # 只修正极端值：字体大小小于8磅或大于30磅
-        font_size = font_config.get('size', 12)
-        if isinstance(font_size, str):
-            try:
-                font_size = float(font_size)
-            except:
-                font_size = 12
-        if font_size < 8 or font_size > 30:
-            logger.warning(f"默认字体大小极端值（{font_size}磅），修正为12磅")
+        # 动态修正异常值：字体大小小于8磅或大于30磅
+        font_size = font_config.get('size') or font_config.get('size_pt')
+        if font_size:
+            if isinstance(font_size, str):
+                try:
+                    font_size = float(font_size)
+                except:
+                    font_size = 12
+            # 更严格的限制：8-30磅为合理范围
+            if font_size < 8 or font_size > 30:
+                logger.warning(f"默认字体大小异常值（{font_size}磅），动态修正为12磅")
+                font_config['size'] = 12
+                font_config['size_pt'] = 12
+            else:
+                # 确保两个字段都设置
+                font_config['size'] = font_size
+                font_config['size_pt'] = font_size
+        else:
+            # 如果没有设置，使用默认值
             font_config['size'] = 12
-        # 保留10-18磅之间的合理差异（不同学校可能有不同要求）
+            font_config['size_pt'] = 12
+        # 保留8-30磅之间的合理差异（不同学校可能有不同要求）
         
         # 2. 验证和修正段落格式（只修正明显错误）
         if 'paragraph' not in config:
@@ -1638,16 +2038,24 @@ class FormatService:
                 # 不强制修正字体名称，保留从模板中提取的实际字体
                 # 不同学校可能使用不同的标题字体（黑体、楷体、宋体加粗等）
                 
-                # 只修正极端值：字体大小小于8磅或大于40磅
+                # 修正异常值：字体大小小于8磅或大于30磅（更严格的限制）
                 font_size = heading.get('font_size', default_headings[level]['font_size'])
                 if isinstance(font_size, str):
                     try:
                         font_size = float(font_size)
                     except:
                         font_size = default_headings[level]['font_size']
-                if font_size < 8 or font_size > 40:
-                    logger.warning(f"{level}标题字体大小极端值（{font_size}磅），使用默认值{default_headings[level]['font_size']}磅")
+                # 更严格的限制：8-30磅为合理范围
+                if font_size < 8 or font_size > 30:
+                    logger.warning(f"{level}标题字体大小异常值（{font_size}磅），修正为{default_headings[level]['font_size']}磅")
                     heading['font_size'] = default_headings[level]['font_size']
+                # 如果使用font_size_pt字段，也检查
+                if 'font_size_pt' in heading:
+                    font_size_pt = heading.get('font_size_pt')
+                    if isinstance(font_size_pt, (int, float)):
+                        if font_size_pt < 8 or font_size_pt > 30:
+                            logger.warning(f"{level}标题字体大小异常值（font_size_pt: {font_size_pt}磅），修正为{default_headings[level]['font_size']}磅")
+                            heading['font_size_pt'] = default_headings[level]['font_size']
                 # 保留8-30磅之间的合理差异
                 
                 # 不强制修正加粗状态，保留从模板中提取的实际状态
@@ -1656,8 +2064,1039 @@ class FormatService:
                 # 如果缺少某个级别的标题格式，添加默认格式（但不强制已有格式）
                 headings_config[level] = default_headings[level].copy()
         
-        logger.info("格式配置验证完成（保留不同学校的格式差异，只修正明显错误）")
+        # 4. 验证和修正特殊章节的字体大小（动态修正异常值）
+        if 'special_sections' in config:
+            special_sections = config['special_sections']
+            
+            # 检查所有特殊章节的字体大小
+            sections_to_check = [
+                ('abstract', ['label_size_pt', 'content_size_pt']),
+                ('keywords', ['size_pt']),
+                ('conclusion', ['title_size_pt']),
+                ('references', ['title_size_pt', 'item_size_pt']),
+                ('table_of_contents', ['title_size_pt']),
+                ('title_english', ['font_size_pt']),
+                ('author_info', ['font_size_pt']),
+            ]
+            
+            for section_key, size_fields in sections_to_check:
+                if section_key in special_sections:
+                    section = special_sections[section_key]
+                    for size_field in size_fields:
+                        if size_field in section:
+                            size = section[size_field]
+                            if isinstance(size, (int, float)):
+                                if size < 8 or size > 30:
+                                    default_size = 12 if 'content' in size_field or 'item' in size_field else 14
+                                    logger.warning(f"{section_key}.{size_field}字体大小异常值（{size}磅），动态修正为{default_size}磅")
+                                    section[size_field] = default_size
+        
+        logger.info("格式配置验证完成（动态修正异常值，保留不同学校的格式差异）")
         return config
+    
+    @classmethod
+    async def _get_universal_instruction_system(cls, query_db: AsyncSession) -> Dict[str, Any]:
+        """
+        从数据库读取完整指令系统
+        
+        :param query_db: 数据库会话
+        :return: 完整指令系统（字典格式）
+        """
+        print("[获取完整指令系统] 开始从数据库读取...")
+        logger.info("[获取完整指令系统] 开始从数据库读取...")
+        try:
+            instruction_system = await UniversalInstructionSystemDao.get_active_instruction_system(query_db)
+            
+            if not instruction_system:
+                print("[获取完整指令系统] ⚠ 未找到激活的完整指令系统")
+                logger.warning("未找到激活的完整指令系统，使用空字典")
+                return {}
+            
+            print(f"[获取完整指令系统] ✓ 找到激活的指令系统")
+            print(f"  ID: {instruction_system.id}")
+            print(f"  版本: {instruction_system.version}")
+            print(f"  描述: {instruction_system.description}")
+            print(f"  是否激活: {instruction_system.is_active}")
+            logger.info(f"[获取完整指令系统] ✓ 找到激活的指令系统 - ID: {instruction_system.id}, 版本: {instruction_system.version}")
+            
+            # 返回instruction_data字段（JSON格式）
+            instruction_data = instruction_system.instruction_data
+            data_type = type(instruction_data).__name__
+            print(f"[获取完整指令系统] 指令数据类型: {data_type}")
+            logger.info(f"[获取完整指令系统] 指令数据类型: {data_type}")
+            
+            if isinstance(instruction_data, dict):
+                data_size = len(json.dumps(instruction_data, ensure_ascii=False))
+                print(f"[获取完整指令系统] ✓ 指令数据为字典格式，大小: {data_size} 字符")
+                logger.info(f"[获取完整指令系统] ✓ 指令数据为字典格式，大小: {data_size} 字符")
+                return instruction_data
+            elif isinstance(instruction_data, str):
+                data_size = len(instruction_data)
+                print(f"[获取完整指令系统] 指令数据为字符串格式，大小: {data_size} 字符，开始解析JSON...")
+                logger.info(f"[获取完整指令系统] 指令数据为字符串格式，大小: {data_size} 字符，开始解析JSON...")
+                parsed_data = json.loads(instruction_data)
+                print(f"[获取完整指令系统] ✓ JSON解析成功")
+                logger.info(f"[获取完整指令系统] ✓ JSON解析成功")
+                return parsed_data
+            else:
+                print(f"[获取完整指令系统] ⚠ 指令数据格式异常: {data_type}")
+                logger.warning(f"完整指令系统数据格式异常: {data_type}")
+                return {}
+                
+        except json.JSONDecodeError as e:
+            print(f"[获取完整指令系统] ✗ JSON解析失败: {str(e)}")
+            logger.error(f"完整指令系统JSON解析失败: {str(e)}", exc_info=True)
+            return {}
+        except Exception as e:
+            print(f"[获取完整指令系统] ✗ 读取失败: {str(e)}")
+            logger.error(f"读取完整指令系统失败: {str(e)}", exc_info=True)
+            return {}
+    
+    @classmethod
+    async def _generate_format_instructions_directly(
+        cls,
+        query_db: AsyncSession,
+        document_text: str,
+        universal_instruction_system: Dict[str, Any],
+        config_id: Optional[int] = None
+    ) -> Dict[str, Any]:
+        """
+        AI直接分析文档文本，一步生成自然语言描述和子集指令系统
+        
+        :param query_db: 数据库会话
+        :param document_text: 文档文本内容
+        :param universal_instruction_system: 完整指令系统
+        :param config_id: AI模型配置ID
+        :return: 包含自然语言描述和子集指令的字典
+        """
+        # 将完整指令系统转换为JSON字符串
+        universal_system_json = json.dumps(universal_instruction_system, ensure_ascii=False, indent=2)
+        if len(universal_system_json) > 10000:
+            # 如果太长，只保留关键结构
+            simplified_system = {
+                'version': universal_instruction_system.get('version'),
+                'description': universal_instruction_system.get('description'),
+                'instruction_type': universal_instruction_system.get('instruction_type'),
+                'format_rules': universal_instruction_system.get('format_rules', {}),
+                'application_rules': universal_instruction_system.get('application_rules', {})
+            }
+            universal_system_json = json.dumps(simplified_system, ensure_ascii=False, indent=2)
+        
+        # 限制文档文本长度（避免超过AI上下文限制）
+        # 重要：不能丢失任何文字信息！如果必须截断，要确保截断位置合理
+        original_length = len(document_text)
+        if original_length > 8000:
+            logger.warning(f"文档文本过长（{original_length}字符），需要截断，但必须确保不丢失关键信息")
+            print(f"[AI格式分析] ⚠ 警告：文档文本过长（{original_length}字符），需要截断")
+            
+            # 检查截断部分是否包含重要关键词
+            truncated_part = document_text[8000:]
+            important_keywords = ["空两行", "空行", "格式要求", "标题", "正文", "页边距", "字体", "字号"]
+            found_keywords = [kw for kw in important_keywords if kw in truncated_part]
+            
+            if found_keywords:
+                logger.error(f"⚠ 严重警告：截断部分包含重要关键词: {found_keywords}，信息将丢失！")
+                print(f"[AI格式分析] ⚠ 严重警告：截断部分包含重要关键词: {found_keywords}，信息将丢失！")
+                print("[AI格式分析] 建议：请检查文档，确保所有格式要求都在前8000字符内")
+            
+            # 截断时保留前8000字符，并添加警告标记
+            document_text = document_text[:8000] + "\n\n[⚠️ 警告：文档内容过长，已截断。后续内容可能包含重要格式要求，请检查！]"
+        
+        # 构建提示词
+        prompt_template_part1 = """你是文档格式分析专家。
+
+## 完整指令系统（格式规范参考）：
+"""
+        prompt_template_part2 = """
+
+## 格式要求文档内容：
+"""
+        prompt_template_part3 = """
+
+## 任务：
+分析上述格式要求文档，理解其中的格式规范，然后：
+1. 生成清晰、准确的自然语言格式描述（用于展示给用户）
+2. 根据完整指令系统的结构，生成JSON格式的子集指令系统（用于系统执行）
+
+## 要求：
+1. 自然语言描述应该包括：
+   - 正文格式（字体、字号、行距、首行缩进等）
+   - 标题格式（各级标题的字体、字号、对齐方式、前后间距等）
+   - 页面设置（页边距、纸张大小等）
+   - 特殊格式（目录、摘要、关键词、结论、参考文献等格式要求）
+   - 章节编号格式（如：第一章、1.1等）
+   - 分页规则（如：章节是否从新页开始）
+
+2. JSON格式指令必须：
+   - 严格按照完整指令系统的JSON结构
+   - 只包含文档中实际提到的格式配置
+   - 字段名必须与完整指令系统一致
+   - 字段值必须在完整指令系统定义的允许范围内
+   - 优先使用空行数字段（*_before_lines、*_after_lines）而不是磅数字段
+
+3. 如果文档中存在完整指令系统中没有定义的格式要求，请在自然语言描述中明确说明，并在JSON中使用extended_fields记录。
+
+## 输出格式：
+请按照以下格式输出：
+
+【自然语言格式描述】
+（这里写自然语言格式描述）
+
+【JSON格式指令】
+```json
+{
+  "version": "...",
+  "format_rules": { ... },
+  "application_rules": { ... }
+}
+```
+
+请开始分析并生成结果。"""
+        
+        prompt = (
+            prompt_template_part1 + universal_system_json +
+            prompt_template_part2 + document_text +
+            prompt_template_part3
+        )
+        
+        # 输出提交给AI的完整提示词（用于调试，确保文档文本完整传递）
+        print("=" * 100)
+        print("[AI格式分析] 📤 提交给AI的完整提示词：")
+        print("=" * 100)
+        prompt_preview_length = 2000  # 显示前2000字符
+        if len(prompt) > prompt_preview_length:
+            print(prompt[:prompt_preview_length])
+            print(f"\n... [提示词过长，已截断前{prompt_preview_length}字符，总长度: {len(prompt)}字符] ...")
+        else:
+            print(prompt)
+        print("=" * 100)
+        logger.info("=" * 100)
+        logger.info("[AI格式分析] 📤 提交给AI的完整提示词：")
+        logger.info("=" * 100)
+        if len(prompt) > prompt_preview_length:
+            logger.info(prompt[:prompt_preview_length] + f"\n... [提示词过长，已截断前{prompt_preview_length}字符，总长度: {len(prompt)}字符] ...")
+        else:
+            logger.info(prompt)
+        logger.info("=" * 100)
+        
+        # 特别检查文档文本部分是否包含"空两行"等关键词
+        if "空两行" in document_text or "空两行" in prompt:
+            print("[AI格式分析] ✓ 检测到文档中包含'空两行'文字说明")
+            logger.info("[AI格式分析] ✓ 检测到文档中包含'空两行'文字说明")
+        if "空行" in document_text or "空行" in prompt:
+            print("[AI格式分析] ✓ 检测到文档中包含'空行'相关文字说明")
+            logger.info("[AI格式分析] ✓ 检测到文档中包含'空行'相关文字说明")
+        
+        # 获取AI提供商
+        llm_provider, model_config = await AiGenerationService._get_ai_provider(query_db, config_id)
+        
+        messages = [
+            {
+                "role": "system",
+                "content": "你是一位专业的文档格式分析专家，擅长分析格式要求文档并生成详细的格式化指令。"
+            },
+            {"role": "user", "content": prompt}
+        ]
+        
+        try:
+            import asyncio
+            response = await asyncio.wait_for(
+                llm_provider.chat(messages, temperature=0.3, max_tokens=4000),
+                timeout=120.0
+            )
+            
+            # 解析AI响应
+            result = cls._parse_ai_format_response(response)
+            natural_language = result.get('natural_language_description', '')
+            json_str = result.get('json_instructions', '{}')
+            
+            # 解析JSON指令
+            try:
+                subset_instruction = json.loads(json_str) if isinstance(json_str, str) else json_str
+            except json.JSONDecodeError:
+                logger.warning("AI返回的JSON格式指令无效，尝试修复...")
+                subset_instruction = cls._extract_json_from_text(json_str)
+            
+            return {
+                'natural_language_description': natural_language,
+                'subset_instruction': subset_instruction
+            }
+            
+        except asyncio.TimeoutError:
+            logger.error("AI调用超时（超过120秒）")
+            raise ServiceException(message="AI分析格式文档超时，请稍后重试")
+        except Exception as e:
+            logger.error(f"AI分析失败: {str(e)}", exc_info=True)
+            raise ServiceException(message=f"AI分析格式文档失败: {str(e)}")
+    
+    @classmethod
+    async def _analyze_format_with_ai_simple(
+        cls,
+        query_db: AsyncSession,
+        document_text: str,
+        config_id: Optional[int] = None
+    ) -> Dict[str, str]:
+        """
+        简化版AI分析方法（当没有完整指令系统时）
+        
+        :param query_db: 数据库会话
+        :param document_text: 文档文本内容
+        :param config_id: AI模型配置ID
+        :return: 包含自然语言描述和JSON指令的字典
+        """
+        # 限制文档文本长度（避免超过AI上下文限制）
+        # 重要：不能丢失任何文字信息！如果必须截断，要确保截断位置合理
+        original_length = len(document_text)
+        if original_length > 8000:
+            logger.warning(f"文档文本过长（{original_length}字符），需要截断，但必须确保不丢失关键信息")
+            print(f"[AI格式分析] ⚠ 警告：文档文本过长（{original_length}字符），需要截断")
+            
+            # 检查截断部分是否包含重要关键词
+            truncated_part = document_text[8000:]
+            important_keywords = ["空两行", "空行", "格式要求", "标题", "正文", "页边距", "字体", "字号"]
+            found_keywords = [kw for kw in important_keywords if kw in truncated_part]
+            
+            if found_keywords:
+                logger.error(f"⚠ 严重警告：截断部分包含重要关键词: {found_keywords}，信息将丢失！")
+                print(f"[AI格式分析] ⚠ 严重警告：截断部分包含重要关键词: {found_keywords}，信息将丢失！")
+                print("[AI格式分析] 建议：请检查文档，确保所有格式要求都在前8000字符内")
+            
+            # 截断时保留前8000字符，并添加警告标记
+            document_text = document_text[:8000] + "\n\n[⚠️ 警告：文档内容过长，已截断。后续内容可能包含重要格式要求，请检查！]"
+        
+        # 使用字符串拼接而不是f-string，避免文档文本中的大括号导致解析错误
+        prompt_template = """你是文档格式分析专家。
+
+## 格式要求文档内容：
+"""
+        prompt_template_end = """
+
+## 任务：
+分析上述格式要求文档，理解其中的格式规范，然后：
+1. 生成清晰、准确的自然语言格式描述
+2. 生成JSON格式的格式化指令
+
+请按照以下格式输出：
+
+【自然语言格式描述】
+（这里写自然语言格式描述）
+
+【JSON格式指令】
+```json
+{
+  "format_rules": { ... },
+  "application_rules": { ... }
+}
+```"""
+        prompt = prompt_template + document_text + prompt_template_end
+        
+        # 输出提交给AI的完整提示词（用于调试）
+        print("=" * 100)
+        print("[AI格式分析] 📤 提交给AI的完整提示词（简化版）：")
+        print("=" * 100)
+        prompt_preview_length = 2000
+        if len(prompt) > prompt_preview_length:
+            print(prompt[:prompt_preview_length])
+            print(f"\n... [提示词过长，已截断前{prompt_preview_length}字符，总长度: {len(prompt)}字符] ...")
+        else:
+            print(prompt)
+        print("=" * 100)
+        logger.info("=" * 100)
+        logger.info("[AI格式分析] 📤 提交给AI的完整提示词（简化版）：")
+        logger.info("=" * 100)
+        if len(prompt) > prompt_preview_length:
+            logger.info(prompt[:prompt_preview_length] + f"\n... [提示词过长，已截断前{prompt_preview_length}字符，总长度: {len(prompt)}字符] ...")
+        else:
+            logger.info(prompt)
+        logger.info("=" * 100)
+        
+        # 特别检查文档文本部分是否包含"空两行"等关键词
+        if "空两行" in document_text or "空两行" in prompt:
+            print("[AI格式分析] ✓ 检测到文档中包含'空两行'文字说明")
+            logger.info("[AI格式分析] ✓ 检测到文档中包含'空两行'文字说明")
+        if "空行" in document_text or "空行" in prompt:
+            print("[AI格式分析] ✓ 检测到文档中包含'空行'相关文字说明")
+            logger.info("[AI格式分析] ✓ 检测到文档中包含'空行'相关文字说明")
+        
+        llm_provider, model_config = await AiGenerationService._get_ai_provider(query_db, config_id)
+        messages = [
+            {
+                "role": "system",
+                "content": "你是一位专业的文档格式分析专家，擅长分析格式要求文档并生成详细的格式化指令。"
+            },
+            {"role": "user", "content": prompt}
+        ]
+        
+        try:
+            import asyncio
+            response = await asyncio.wait_for(
+                llm_provider.chat(messages, temperature=0.3, max_tokens=4000),
+                timeout=120.0
+            )
+            
+            result = cls._parse_ai_format_response(response)
+            json_str = result.get('json_instructions', '{}')
+            
+            try:
+                subset_instruction = json.loads(json_str) if isinstance(json_str, str) else json_str
+            except json.JSONDecodeError:
+                subset_instruction = cls._extract_json_from_text(json_str)
+            
+            # 验证和修正
+            try:
+                validated_config = cls._validate_and_fix_format_config(subset_instruction)
+                subset_instruction = validated_config
+            except Exception as e:
+                logger.warning(f"格式指令验证失败: {str(e)}，使用原始指令")
+            
+            return {
+                'natural_language_description': result.get('natural_language_description', ''),
+                'json_instructions': json.dumps(subset_instruction, ensure_ascii=False, indent=2)
+            }
+            
+        except Exception as e:
+            logger.error(f"AI分析失败: {str(e)}", exc_info=True)
+            raise ServiceException(message=f"AI分析格式文档失败: {str(e)}")
+    
+    @classmethod
+    async def _generate_natural_language_format_requirement(
+        cls,
+        query_db: AsyncSession,
+        document_content: Dict[str, Any],
+        universal_instruction_system: Dict[str, Any],
+        config_id: Optional[int] = None
+    ) -> str:
+        """
+        AI第一步：生成自然语言的格式要求
+        
+        :param query_db: 数据库会话
+        :param document_content: 文档内容
+        :param universal_instruction_system: 完整指令系统
+        :param config_id: AI模型配置ID
+        :return: 自然语言格式要求描述
+        """
+        # 将文档内容转换为JSON字符串
+        content_json = json.dumps(document_content, ensure_ascii=False, indent=2)
+        if len(content_json) > 3000:
+            content_dict = document_content.copy()
+            if 'paragraphs' in content_dict:
+                for para in content_dict['paragraphs']:
+                    if 'text' in para and len(para['text']) > 100:
+                        para['text'] = para['text'][:100] + '...'
+            content_json = json.dumps(content_dict, ensure_ascii=False, indent=2)[:3000]
+        
+        # 将完整指令系统转换为JSON字符串（只包含结构，不包含所有值）
+        universal_system_json = json.dumps(universal_instruction_system, ensure_ascii=False, indent=2)
+        if len(universal_system_json) > 5000:
+            # 如果太长，只保留关键结构
+            simplified_system = {
+                'version': universal_instruction_system.get('version'),
+                'description': universal_instruction_system.get('description'),
+                'format_rules': {
+                    'default_font': universal_instruction_system.get('format_rules', {}).get('default_font', {}),
+                    'headings': universal_instruction_system.get('format_rules', {}).get('headings', {}),
+                    'paragraph': universal_instruction_system.get('format_rules', {}).get('paragraph', {})
+                },
+                'application_rules': universal_instruction_system.get('application_rules', {})
+            }
+            universal_system_json = json.dumps(simplified_system, ensure_ascii=False, indent=2)
+        
+        # 构建第一步提示词
+        prompt = f"""你是文档格式分析专家。
+
+## 完整指令系统（参考）：
+{universal_system_json}
+
+## Word文档格式信息：
+{content_json}
+
+## 任务：
+分析Word文档格式，生成自然语言的格式要求描述。
+
+描述应该包括：
+- 正文格式（字体、字号、行距、首行缩进等）
+- 标题格式（各级标题的字体、字号、对齐方式、前后间距等）
+- 页面设置（页边距、纸张大小等）
+- 特殊格式（目录、摘要、关键词、结论、参考文献等格式要求）
+- 章节编号格式（如：第一章、1.1等）
+- 分页规则（如：章节是否从新页开始）
+
+## 重要提示：
+如果文档中存在完整指令系统中没有定义的格式要求（例如：特殊的字体、特殊的页眉页脚格式、特殊的表格样式等），请在自然语言描述中明确说明这些特殊格式要求，并标注为"扩展格式要求"。这些扩展格式要求将在后续步骤中通过扩展字段机制处理。
+
+请用清晰、准确的自然语言描述格式要求，确保描述完整、准确。"""
+        
+        # 获取AI提供商
+        print(f"[AI第一步] 获取AI提供商...")
+        logger.info(f"[AI第一步] 获取AI提供商...")
+        llm_provider, model_config = await AiGenerationService._get_ai_provider(query_db, config_id)
+        provider_name = type(llm_provider).__name__
+        print(f"[AI第一步] ✓ AI提供商: {provider_name}")
+        logger.info(f"[AI第一步] ✓ AI提供商: {provider_name}")
+        
+        # 调用AI生成自然语言格式要求
+        prompt_len = len(prompt)
+        print(f"[AI第一步] 提示词长度: {prompt_len} 字符")
+        logger.info(f"[AI第一步] 提示词长度: {prompt_len} 字符")
+        
+        messages = [
+            {
+                "role": "system",
+                "content": "你是一位专业的文档格式分析专家，擅长分析Word文档的格式要求并用自然语言描述。"
+            },
+            {"role": "user", "content": prompt}
+        ]
+        
+        try:
+            import asyncio
+            print(f"[AI第一步] 开始调用AI模型（超时时间: 120秒）...")
+            logger.info(f"[AI第一步] 开始调用AI模型（超时时间: 120秒）...")
+            import time
+            start_time = time.time()
+            
+            response = await asyncio.wait_for(
+                llm_provider.chat(messages, temperature=0.3, max_tokens=2000),
+                timeout=120.0
+            )
+            
+            elapsed_time = time.time() - start_time
+            response_len = len(response)
+            print(f"[AI第一步] ✓ AI调用完成，耗时: {elapsed_time:.2f}秒，响应长度: {response_len} 字符")
+            logger.info(f"[AI第一步] ✓ AI调用完成，耗时: {elapsed_time:.2f}秒，响应长度: {response_len} 字符")
+            
+            # 清理响应（移除可能的标记）
+            natural_language = response.strip()
+            # 移除可能的【格式要求描述】等标记
+            import re
+            natural_language = re.sub(r'【.*?】', '', natural_language).strip()
+            
+            final_len = len(natural_language)
+            print(f"[AI第一步] ✓ 自然语言格式要求生成完成，最终长度: {final_len} 字符")
+            print(f"[AI第一步] 前200字符预览: {natural_language[:200]}...")
+            logger.info(f"AI第一步完成：生成自然语言格式要求，长度: {final_len} 字符")
+            return natural_language
+            
+        except asyncio.TimeoutError:
+            print(f"[AI第一步] ✗ AI调用超时（超过120秒）")
+            logger.error(f"AI第一步失败：AI调用超时（超过120秒）")
+            raise ServiceException(message="生成自然语言格式要求超时，请稍后重试")
+        except Exception as e:
+            print(f"[AI第一步] ✗ AI调用失败: {str(e)}")
+            logger.error(f"AI第一步失败：生成自然语言格式要求失败: {str(e)}", exc_info=True)
+            raise ServiceException(message=f"生成自然语言格式要求失败: {str(e)}")
+    
+    @classmethod
+    async def _generate_subset_instruction_system(
+        cls,
+        query_db: AsyncSession,
+        document_content: Dict[str, Any],
+        natural_language_description: str,
+        universal_instruction_system: Dict[str, Any],
+        config_id: Optional[int] = None
+    ) -> Dict[str, Any]:
+        """
+        AI第二步：按指令系统格式，生成子集指令系统
+        
+        :param query_db: 数据库会话
+        :param document_content: 文档内容
+        :param natural_language_description: 自然语言格式要求
+        :param universal_instruction_system: 完整指令系统
+        :param config_id: AI模型配置ID
+        :return: 子集指令系统（字典格式）
+        """
+        # 将文档内容转换为JSON字符串
+        content_json = json.dumps(document_content, ensure_ascii=False, indent=2)
+        if len(content_json) > 3000:
+            content_dict = document_content.copy()
+            if 'paragraphs' in content_dict:
+                for para in content_dict['paragraphs']:
+                    if 'text' in para and len(para['text']) > 100:
+                        para['text'] = para['text'][:100] + '...'
+            content_json = json.dumps(content_dict, ensure_ascii=False, indent=2)[:3000]
+        
+        # 将完整指令系统转换为JSON字符串
+        universal_system_json = json.dumps(universal_instruction_system, ensure_ascii=False, indent=2)
+        if len(universal_system_json) > 10000:
+            # 如果太长，只保留关键结构
+            simplified_system = {
+                'version': universal_instruction_system.get('version'),
+                'description': universal_instruction_system.get('description'),
+                'instruction_type': universal_instruction_system.get('instruction_type'),
+                'format_rules': universal_instruction_system.get('format_rules', {}),
+                'application_rules': universal_instruction_system.get('application_rules', {})
+            }
+            universal_system_json = json.dumps(simplified_system, ensure_ascii=False, indent=2)
+        
+        # 构建第二步提示词
+        # 注意：使用字符串拼接而不是f-string或format，避免JSON中的大括号被误解析
+        prompt_template_part1 = """你是文档格式分析专家。
+
+## 完整指令系统（格式规范）：
+"""
+        prompt_template_part2 = """
+
+## Word文档格式信息：
+"""
+        prompt_template_part3 = """
+
+## 自然语言格式要求：
+"""
+        prompt_template_part4 = """
+
+## 任务：
+根据自然语言格式要求，从完整指令系统中选择相应的配置项，生成这个学校的子集指令系统。
+
+要求：
+1. 子集指令系统必须符合完整指令系统的格式规范（JSON结构必须一致）
+2. 只包含这个学校实际使用的格式配置（从Word文档中实际提取的值）
+3. 所有值必须从Word文档中实际提取，不要使用默认值
+4. 必须严格按照完整指令系统的JSON结构
+5. 字段名必须与完整指令系统一致
+6. 字段值必须在完整指令系统定义的允许范围内
+
+## 扩展字段处理（重要）：
+如果自然语言格式要求中提到了"扩展格式要求"或存在以下情况，必须使用扩展字段机制：
+1. 格式要求在完整指令系统的format_rules或application_rules中找不到对应字段
+2. 字段值不在完整指令系统定义的allowed_values范围内
+3. 存在特殊的格式规则（如特殊的页眉页脚格式、特殊的表格样式等）
+
+扩展字段结构：
+```json
+{
+  "version": "...",
+  "format_rules": { ... },
+  "application_rules": { ... },
+  "extended_fields": {
+    "format_rules": {
+      "字段名": {
+        "name": "字段显示名称",
+        "value": "实际值",
+        "description": "字段说明",
+        "source": "从Word文档的哪个部分提取的"
+      }
+    },
+    "application_rules": {
+      "字段名": {
+        "name": "字段显示名称",
+        "value": "实际值",
+        "description": "字段说明",
+        "source": "从Word文档的哪个部分提取的"
+      }
+    }
+  }
+}
+```
+
+扩展字段要求：
+- 扩展字段名应使用下划线命名（snake_case），清晰描述字段用途
+- 每个扩展字段必须包含name、value、description、source四个字段
+- value应保持原始格式，不要转换
+- description应说明该字段的用途和来源
+- source应说明该值是从Word文档的哪个部分提取的
+
+重要：
+- 字体大小单位是"磅"（point），正常范围是8-30磅
+- 如果文档中字体大小是数字（如 `12`），直接使用
+- 如果提取的值不在正常范围内（如45.72磅），需要重新检查
+- 所有格式必须从文档中实际提取，不使用默认值
+- 优先使用完整指令系统中的字段，只有在找不到对应字段时才使用扩展字段
+
+## 空行数字段使用规则（重要）：
+对于标题和特殊章节的空行设置，优先使用空行数字段（*_before_lines、*_after_lines）：
+1. **优先使用空行数字段**：如果Word文档中明确提到"空X行"、"前后各空两行"等描述，直接使用空行数字段（如：title_before_lines: 2, title_after_lines: 2）
+2. **从磅数转换**：如果只有磅数信息（如：title_spacing_before_pt: 48），可以转换为空行数（通常24磅=1行），或同时提供两个字段
+3. **字段优先级**：空行数字段优先于磅数字段。如果两者都有，优先使用空行数字段
+4. **适用范围**：
+   - 标题（h1/h2/h3）：使用 spacing_before_lines 和 spacing_after_lines
+   - 特殊章节（目录、结论、参考文献、致谢等）：使用 title_before_lines 和 title_after_lines
+   - 空行数范围：0-10行
+
+请生成JSON格式的子集指令系统，严格按照完整指令系统的结构。如果存在扩展格式要求，请在extended_fields中记录。"""
+        
+        # 使用字符串拼接填充变量，避免f-string嵌套过深和format方法将JSON大括号误解析的问题
+        prompt = (
+            prompt_template_part1 + universal_system_json +
+            prompt_template_part2 + content_json +
+            prompt_template_part3 + natural_language_description +
+            prompt_template_part4
+        )
+        
+        # 获取AI提供商
+        print(f"[AI第二步] 获取AI提供商...")
+        logger.info(f"[AI第二步] 获取AI提供商...")
+        llm_provider, model_config = await AiGenerationService._get_ai_provider(query_db, config_id)
+        provider_name = type(llm_provider).__name__
+        print(f"[AI第二步] ✓ AI提供商: {provider_name}")
+        logger.info(f"[AI第二步] ✓ AI提供商: {provider_name}")
+        
+        # 调用AI生成子集指令系统
+        prompt_len = len(prompt)
+        print(f"[AI第二步] 提示词长度: {prompt_len} 字符")
+        print(f"[AI第二步] 自然语言描述长度: {len(natural_language_description)} 字符")
+        logger.info(f"[AI第二步] 提示词长度: {prompt_len} 字符")
+        logger.info(f"[AI第二步] 自然语言描述长度: {len(natural_language_description)} 字符")
+        
+        messages = [
+            {
+                "role": "system",
+                "content": "你是一位专业的文档格式分析专家，擅长根据格式要求生成符合规范的JSON格式指令。"
+            },
+            {"role": "user", "content": prompt}
+        ]
+        
+        try:
+            import asyncio
+            print(f"[AI第二步] 开始调用AI模型（超时时间: 120秒）...")
+            logger.info(f"[AI第二步] 开始调用AI模型（超时时间: 120秒）...")
+            import time
+            start_time = time.time()
+            
+            response = await asyncio.wait_for(
+                llm_provider.chat(messages, temperature=0.3, max_tokens=4000),
+                timeout=120.0
+            )
+            
+            elapsed_time = time.time() - start_time
+            response_len = len(response)
+            print(f"[AI第二步] ✓ AI调用完成，耗时: {elapsed_time:.2f}秒，响应长度: {response_len} 字符")
+            logger.info(f"[AI第二步] ✓ AI调用完成，耗时: {elapsed_time:.2f}秒，响应长度: {response_len} 字符")
+            
+            # 解析AI响应，提取JSON指令
+            print(f"[AI第二步] 开始解析AI响应，提取JSON指令...")
+            logger.info(f"[AI第二步] 开始解析AI响应，提取JSON指令...")
+            # 尝试提取JSON部分
+            import re
+            json_match = re.search(r'```(?:json)?\s*(\{.*?\})\s*```', response, re.DOTALL)
+            if json_match:
+                json_str = json_match.group(1).strip()
+                print(f"[AI第二步] ✓ 从代码块中提取到JSON")
+                logger.info(f"[AI第二步] ✓ 从代码块中提取到JSON")
+            else:
+                # 尝试从响应中提取JSON对象
+                print(f"[AI第二步] 未找到代码块，尝试从文本中提取JSON...")
+                logger.info(f"[AI第二步] 未找到代码块，尝试从文本中提取JSON...")
+                json_str = cls._extract_json_from_text(response)
+                print(f"[AI第二步] ✓ 从文本中提取到JSON")
+                logger.info(f"[AI第二步] ✓ 从文本中提取到JSON")
+            
+            # 解析JSON
+            if isinstance(json_str, str):
+                try:
+                    subset_instruction = json.loads(json_str)
+                    print(f"[AI第二步] ✓ JSON解析成功")
+                    logger.info(f"[AI第二步] ✓ JSON解析成功")
+                except json.JSONDecodeError as e:
+                    print(f"[AI第二步] ⚠ JSON解析失败: {str(e)}，尝试使用_extract_json_from_text方法")
+                    logger.warning(f"[AI第二步] JSON解析失败: {str(e)}，尝试使用_extract_json_from_text方法")
+                    # 如果解析失败，尝试使用_extract_json_from_text方法
+                    subset_instruction = cls._extract_json_from_text(json_str)
+                    print(f"[AI第二步] ✓ 使用_extract_json_from_text方法成功")
+                    logger.info(f"[AI第二步] ✓ 使用_extract_json_from_text方法成功")
+            else:
+                subset_instruction = json_str
+                print(f"[AI第二步] ✓ 响应已经是字典格式")
+                logger.info(f"[AI第二步] ✓ 响应已经是字典格式")
+            
+            instruction_size = len(json.dumps(subset_instruction, ensure_ascii=False))
+            print(f"[AI第二步] ✓ 子集指令系统生成完成，大小: {instruction_size} 字符")
+            logger.info(f"AI第二步完成：生成子集指令系统，大小: {instruction_size} 字符")
+            return subset_instruction
+            
+        except asyncio.TimeoutError:
+            print(f"[AI第二步] ✗ AI调用超时（超过120秒）")
+            logger.error(f"AI第二步失败：AI调用超时（超过120秒）")
+            raise ServiceException(message="生成子集指令系统超时，请稍后重试")
+        except Exception as e:
+            print(f"[AI第二步] ✗ AI调用失败: {str(e)}")
+            logger.error(f"AI第二步失败：生成子集指令系统失败: {str(e)}", exc_info=True)
+            raise ServiceException(message=f"生成子集指令系统失败: {str(e)}")
+    
+    @classmethod
+    def _validate_format_specification(
+        cls,
+        subset_instruction: Dict[str, Any],
+        universal_instruction_system: Dict[str, Any]
+    ) -> list:
+        """
+        格式规范校验：检查子集指令系统是否符合完整指令系统的格式规范
+        
+        :param subset_instruction: 子集指令系统
+        :param universal_instruction_system: 完整指令系统
+        :return: 错误列表
+        """
+        errors = []
+        
+        if not universal_instruction_system:
+            logger.warning("完整指令系统为空，跳过格式规范校验")
+            return errors
+        
+        try:
+            # 1. 检查JSON结构是否符合规范
+            # 检查顶层字段
+            required_top_level_fields = ['version', 'format_rules', 'application_rules']
+            for field in required_top_level_fields:
+                if field not in subset_instruction:
+                    errors.append(f"缺少必填字段: {field}")
+            
+            # 2. 检查format_rules中的字段
+            if 'format_rules' in subset_instruction and 'format_rules' in universal_instruction_system:
+                subset_format_rules = subset_instruction['format_rules']
+                universal_format_rules = universal_instruction_system['format_rules']
+                
+                # 检查每个字段是否在完整指令系统中定义
+                for key, value in subset_format_rules.items():
+                    if key not in universal_format_rules:
+                        # 如果字段不在完整指令系统中，检查是否在扩展字段中
+                        if 'extended_fields' in subset_instruction:
+                            extended_format_rules = subset_instruction['extended_fields'].get('format_rules', {})
+                            if key in extended_format_rules:
+                                # 字段在扩展字段中，这是允许的，记录信息但不作为错误
+                                logger.info(f"format_rules中的字段 '{key}' 使用扩展字段机制（符合规范）")
+                                continue
+                        # 如果既不在完整指令系统中，也不在扩展字段中，记录警告（不是错误）
+                        logger.warning(f"format_rules中包含未定义的字段: {key}（建议使用扩展字段机制）")
+                        # 不将其作为错误，因为可能是合理的扩展字段，只是没有正确放在extended_fields中
+                        continue
+                    
+                    # 检查字段值是否符合规范
+                    field_def = universal_format_rules[key]
+                    if isinstance(field_def, dict) and 'type' in field_def:
+                        # 如果字段定义包含类型信息，进行类型检查
+                        field_type = field_def.get('type')
+                        if field_type == 'number' and not isinstance(value, (int, float)):
+                            errors.append(f"format_rules.{key} 应该是数字类型，实际为: {type(value).__name__}")
+                        elif field_type == 'string' and not isinstance(value, str):
+                            errors.append(f"format_rules.{key} 应该是字符串类型，实际为: {type(value).__name__}")
+                        elif field_type == 'boolean' and not isinstance(value, bool):
+                            errors.append(f"format_rules.{key} 应该是布尔类型，实际为: {type(value).__name__}")
+                        
+                        # 检查允许的值范围
+                        if 'allowed_values' in field_def:
+                            if isinstance(value, str) and value not in field_def['allowed_values']:
+                                errors.append(f"format_rules.{key} 的值 '{value}' 不在允许的范围内: {field_def['allowed_values']}")
+                        
+                        # 检查数值范围
+                        if 'range' in field_def and isinstance(value, (int, float)):
+                            min_val, max_val = field_def['range']
+                            if value < min_val or value > max_val:
+                                errors.append(f"format_rules.{key} 的值 {value} 不在允许的范围内 [{min_val}, {max_val}]")
+            
+            # 3. 检查application_rules中的字段
+            if 'application_rules' in subset_instruction and 'application_rules' in universal_instruction_system:
+                subset_app_rules = subset_instruction['application_rules']
+                universal_app_rules = universal_instruction_system['application_rules']
+                
+                # 检查关键字段
+                key_fields = ['chapter_numbering_format', 'special_section_format_rules', 'document_structure']
+                for field in key_fields:
+                    if field in subset_app_rules:
+                        if field not in universal_app_rules:
+                            # 如果字段不在完整指令系统中，检查是否在扩展字段中
+                            if 'extended_fields' in subset_instruction:
+                                extended_app_rules = subset_instruction['extended_fields'].get('application_rules', {})
+                                if field in extended_app_rules:
+                                    # 字段在扩展字段中，这是允许的，记录信息但不作为错误
+                                    logger.info(f"application_rules中的字段 '{field}' 使用扩展字段机制（符合规范）")
+                                    continue
+                            # 如果既不在完整指令系统中，也不在扩展字段中，记录警告
+                            logger.warning(f"application_rules中包含未定义的字段: {field}（建议使用扩展字段机制）")
+                            # 不将其作为错误，因为可能是合理的扩展字段
+            
+            if errors:
+                logger.warning(f"格式规范校验发现 {len(errors)} 个问题: {errors}")
+            else:
+                logger.info("格式规范校验通过")
+                
+        except Exception as e:
+            logger.error(f"格式规范校验过程出错: {str(e)}", exc_info=True)
+            errors.append(f"格式规范校验过程出错: {str(e)}")
+        
+        return errors
+    
+    @classmethod
+    def _validate_consistency(
+        cls,
+        natural_language: str,
+        subset_instruction: Dict[str, Any]
+    ) -> list:
+        """
+        一致性校验：检查自然语言描述与子集指令系统是否一致
+        
+        :param natural_language: 自然语言格式要求
+        :param subset_instruction: 子集指令系统
+        :return: 错误列表
+        """
+        errors = []
+        
+        try:
+            import re
+            
+            # 1. 检查自然语言中提到的关键格式要求是否在子集指令系统中
+            # 提取关键格式信息
+            key_patterns = {
+                'font_size': r'(\d+(?:\.\d+)?)\s*磅|字号[：:]\s*(\d+(?:\.\d+)?)',
+                'font_name': r'字体[：:]\s*([^，,。\n]+)|([^，,。\n]+)体',
+                'line_spacing': r'行距[：:]\s*(\d+(?:\.\d+)?)|(\d+(?:\.\d+)?)\s*倍行距',
+                'alignment': r'对齐[：:]\s*([^，,。\n]+)|(居中|左对齐|右对齐)'
+            }
+            
+            # 检查字体大小一致性
+            font_size_matches = re.findall(key_patterns['font_size'], natural_language)
+            if font_size_matches:
+                for match in font_size_matches:
+                    size_str = match[0] if match[0] else match[1]
+                    if size_str:
+                        try:
+                            size_value = float(size_str)
+                            # 检查子集指令系统中是否有对应的字体大小配置
+                            found = False
+                            if 'format_rules' in subset_instruction:
+                                format_rules = subset_instruction['format_rules']
+                                # 检查default_font
+                                if 'default_font' in format_rules:
+                                    default_font = format_rules['default_font']
+                                    if 'size_pt' in default_font and abs(default_font['size_pt'] - size_value) < 0.1:
+                                        found = True
+                                # 检查headings
+                                if not found and 'headings' in format_rules:
+                                    for level in ['h1', 'h2', 'h3']:
+                                        if level in format_rules['headings']:
+                                            heading = format_rules['headings'][level]
+                                            if 'font_size_pt' in heading and abs(heading['font_size_pt'] - size_value) < 0.1:
+                                                found = True
+                                                break
+                            
+                            if not found and size_value >= 8 and size_value <= 30:
+                                # 如果字体大小在合理范围内但未在指令中找到，记录警告（不是错误）
+                                logger.debug(f"自然语言中提到字体大小 {size_value} 磅，但在子集指令系统中未找到对应配置")
+                        except ValueError:
+                            pass
+            
+            # 2. 检查子集指令系统中的关键配置是否在自然语言中有描述
+            # 检查字体大小
+            if 'format_rules' in subset_instruction:
+                format_rules = subset_instruction['format_rules']
+                
+                # 检查default_font
+                if 'default_font' in format_rules:
+                    default_font = format_rules['default_font']
+                    if 'size_pt' in default_font:
+                        size_value = default_font['size_pt']
+                        if not re.search(rf'{size_value}\s*磅|字号[：:]\s*{size_value}', natural_language):
+                            # 如果字体大小不在自然语言中，记录警告（不是错误，因为自然语言可能不完整）
+                            logger.debug(f"子集指令系统中的默认字体大小 {size_value} 磅未在自然语言中明确提及")
+            
+            # 3. 检查扩展字段是否在自然语言中有描述
+            if 'extended_fields' in subset_instruction:
+                extended_fields = subset_instruction['extended_fields']
+                
+                # 检查format_rules扩展字段
+                if 'format_rules' in extended_fields:
+                    for field_name, field_info in extended_fields['format_rules'].items():
+                        if isinstance(field_info, dict) and 'name' in field_info:
+                            field_display_name = field_info.get('name', field_name)
+                            # 检查自然语言中是否提到这个扩展字段
+                            if field_display_name not in natural_language and field_name not in natural_language:
+                                logger.warning(f"扩展字段 format_rules.{field_name} 未在自然语言格式要求中明确描述，建议补充说明")
+                
+                # 检查application_rules扩展字段
+                if 'application_rules' in extended_fields:
+                    for field_name, field_info in extended_fields['application_rules'].items():
+                        if isinstance(field_info, dict) and 'name' in field_info:
+                            field_display_name = field_info.get('name', field_name)
+                            # 检查自然语言中是否提到这个扩展字段
+                            if field_display_name not in natural_language and field_name not in natural_language:
+                                logger.warning(f"扩展字段 application_rules.{field_name} 未在自然语言格式要求中明确描述，建议补充说明")
+            
+            # 4. 检查关键格式是否一致（更严格的检查）
+            # 这里可以添加更多的一致性检查逻辑
+            
+            logger.info("一致性校验完成")
+            
+        except Exception as e:
+            logger.error(f"一致性校验过程出错: {str(e)}", exc_info=True)
+            errors.append(f"一致性校验过程出错: {str(e)}")
+        
+        return errors
+    
+    @classmethod
+    def _validate_instruction_system(
+        cls,
+        natural_language: str,
+        subset_instruction: Dict[str, Any],
+        universal_instruction_system: Dict[str, Any]
+    ) -> Dict[str, Any]:
+        """
+        整合三种校验方式：格式规范校验、一致性校验、数据质量校验
+        
+        :param natural_language: 自然语言格式要求
+        :param subset_instruction: 子集指令系统
+        :param universal_instruction_system: 完整指令系统
+        :return: 校验结果
+        """
+        print("[指令系统校验] 开始执行三种校验...")
+        logger.info("[指令系统校验] 开始执行三种校验...")
+        all_errors = []
+        
+        # 1. 格式规范校验
+        print("[指令系统校验] 步骤1/3: 格式规范校验...")
+        logger.info("[指令系统校验] 步骤1/3: 格式规范校验...")
+        format_errors = cls._validate_format_specification(subset_instruction, universal_instruction_system)
+        all_errors.extend(format_errors)
+        if format_errors:
+            print(f"[指令系统校验] ⚠ 步骤1/3: 格式规范校验发现 {len(format_errors)} 个错误")
+            logger.warning(f"[指令系统校验] ⚠ 步骤1/3: 格式规范校验发现 {len(format_errors)} 个错误")
+            for i, error in enumerate(format_errors[:5], 1):  # 只显示前5个错误
+                print(f"  错误{i}: {error}")
+                logger.warning(f"  错误{i}: {error}")
+        else:
+            print(f"[指令系统校验] ✓ 步骤1/3: 格式规范校验通过")
+            logger.info(f"[指令系统校验] ✓ 步骤1/3: 格式规范校验通过")
+        
+        # 2. 一致性校验
+        print("[指令系统校验] 步骤2/3: 一致性校验...")
+        logger.info("[指令系统校验] 步骤2/3: 一致性校验...")
+        consistency_errors = cls._validate_consistency(natural_language, subset_instruction)
+        all_errors.extend(consistency_errors)
+        if consistency_errors:
+            print(f"[指令系统校验] ⚠ 步骤2/3: 一致性校验发现 {len(consistency_errors)} 个错误")
+            logger.warning(f"[指令系统校验] ⚠ 步骤2/3: 一致性校验发现 {len(consistency_errors)} 个错误")
+            for i, error in enumerate(consistency_errors[:5], 1):  # 只显示前5个错误
+                print(f"  错误{i}: {error}")
+                logger.warning(f"  错误{i}: {error}")
+        else:
+            print(f"[指令系统校验] ✓ 步骤2/3: 一致性校验通过")
+            logger.info(f"[指令系统校验] ✓ 步骤2/3: 一致性校验通过")
+        
+        # 3. 数据质量校验（复用现有的方法）
+        print("[指令系统校验] 步骤3/3: 数据质量校验...")
+        logger.info("[指令系统校验] 步骤3/3: 数据质量校验...")
+        try:
+            # 数据质量校验会自动修正异常值，所以这里只记录警告
+            validated_config = cls._validate_and_fix_format_config(subset_instruction.copy())
+            if validated_config != subset_instruction:
+                print(f"[指令系统校验] ⚠ 步骤3/3: 数据质量校验发现并修正了异常值")
+                logger.info("数据质量校验发现并修正了异常值")
+            else:
+                print(f"[指令系统校验] ✓ 步骤3/3: 数据质量校验通过")
+                logger.info(f"[指令系统校验] ✓ 步骤3/3: 数据质量校验通过")
+        except Exception as e:
+            print(f"[指令系统校验] ✗ 步骤3/3: 数据质量校验过程出错: {str(e)}")
+            logger.warning(f"数据质量校验过程出错: {str(e)}")
+            all_errors.append(f"数据质量校验过程出错: {str(e)}")
+        
+        total_errors = len(all_errors)
+        if total_errors == 0:
+            print(f"[指令系统校验] ✓ 所有校验通过")
+            logger.info(f"[指令系统校验] ✓ 所有校验通过")
+        else:
+            print(f"[指令系统校验] ⚠ 共发现 {total_errors} 个错误")
+            logger.warning(f"[指令系统校验] ⚠ 共发现 {total_errors} 个错误")
+        
+        return {
+            'valid': len(all_errors) == 0,
+            'errors': all_errors
+        }
     
     @classmethod
     def _create_formatted_document(
@@ -1680,7 +3119,16 @@ class FormatService:
         from utils.log_util import logger
         
         if not DOCX_AVAILABLE:
-            raise ServiceException(message='python-docx 未安装，无法创建Word文档。请运行: pip install python-docx')
+            import sys
+            python_path = sys.executable
+            error_msg = (
+                f'python-docx 未安装，无法创建Word文档。\n'
+                f'当前Python路径: {python_path}\n'
+                f'请执行以下命令安装: pip install python-docx\n'
+                f'如果使用虚拟环境，请确保已激活虚拟环境。'
+            )
+            logger.error(error_msg)
+            raise ServiceException(message=error_msg)
         
         try:
             logger.info(f"[格式化开始] 论文ID: {thesis_id}, 章节数量: {len(chapters)}")
