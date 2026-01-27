@@ -611,36 +611,78 @@ async def download_thesis(
     current_user: Annotated[CurrentUserModel, CurrentUserDependency()],
 ) -> StreamingResponse:
     """下载格式化后的论文"""
-    # 权限检查
-    thesis = await ThesisService.get_thesis_detail(query_db, thesis_id)
-    if not current_user.user.admin and thesis.user_id != current_user.user.user_id:
-        return ResponseUtil.error(msg='无权下载此论文')
-    
-    # 获取文件信息
-    file_info = await ThesisService.download_thesis(
-        query_db,
-        thesis_id,
-        current_user.user.user_id
-    )
-    
-    # 生成文件流
-    file_generator = UploadUtil.generate_file(file_info['file_path'])
-    
-    # 处理文件名编码（支持中文）
-    from urllib.parse import quote
-    encoded_filename = quote(file_info['file_name'], safe='')
-    
-    # 设置响应头（使用RFC 5987格式支持中文文件名）
-    headers = {
-        'Content-Disposition': f'attachment; filename="{file_info["file_name"]}"; filename*=UTF-8\'\'{encoded_filename}',
-        'Content-Type': 'application/vnd.openxmlformats-officedocument.wordprocessingml.document'
-    }
-    
-    # 安全地记录日志，避免中文字符编码问题
     try:
-        logger.info(f'用户 {current_user.user.user_name} 下载论文 ID: {thesis_id}, 文件名: {file_info["file_name"]}')
-    except UnicodeEncodeError:
-        # 如果文件名包含无法编码的字符，使用安全的编码方式
-        safe_filename = file_info["file_name"].encode('utf-8', errors='replace').decode('utf-8', errors='replace')
-        logger.info(f'用户 {current_user.user.user_name} 下载论文 ID: {thesis_id}, 文件名: {safe_filename}')
-    return ResponseUtil.streaming(data=file_generator, headers=headers)
+        # 权限检查
+        thesis = await ThesisService.get_thesis_detail(query_db, thesis_id)
+        if not current_user.user.admin and thesis.user_id != current_user.user.user_id:
+            return ResponseUtil.error(msg='无权下载此论文')
+        
+        # 获取文件信息
+        file_info = await ThesisService.download_thesis(
+            query_db,
+            thesis_id,
+            current_user.user.user_id
+        )
+        
+        # 检查文件是否存在
+        import os
+        if not os.path.exists(file_info['file_path']):
+            logger.error(f'文件不存在: {file_info["file_path"]}')
+            return ResponseUtil.error(msg=f'文件不存在，请重新格式化论文')
+        
+        # 生成文件流
+        file_generator = UploadUtil.generate_file(file_info['file_path'])
+        
+        # 处理文件名编码（支持中文，使用RFC 5987标准）
+        from urllib.parse import quote
+        
+        # 获取原始文件名
+        original_filename = file_info['file_name']
+        
+        # 安全处理文件名：确保是UTF-8字符串
+        if isinstance(original_filename, bytes):
+            safe_filename = original_filename.decode('utf-8', errors='replace')
+        else:
+            safe_filename = str(original_filename)
+        
+        # 使用RFC 5987格式编码文件名（支持中文）
+        # filename*=UTF-8''encoded_filename
+        encoded_filename = quote(safe_filename, safe='')
+        
+        # 构建Content-Disposition头（同时支持ASCII和UTF-8）
+        # ASCII文件名（用于兼容性）
+        ascii_filename = safe_filename.encode('ascii', errors='ignore').decode('ascii')
+        if not ascii_filename or ascii_filename != safe_filename:
+            # 如果包含非ASCII字符，只使用UTF-8编码版本
+            content_disposition = f"attachment; filename*=UTF-8''{encoded_filename}"
+        else:
+            # 如果只有ASCII字符，使用标准格式
+            content_disposition = f'attachment; filename="{ascii_filename}"'
+        
+        # 设置响应头
+        headers = {
+            'Content-Disposition': content_disposition,
+            'Content-Type': 'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+            'Content-Transfer-Encoding': 'binary'
+        }
+        
+        # 安全地记录日志
+        try:
+            logger.info(f'用户 {current_user.user.user_name} 下载论文 ID: {thesis_id}, 文件名: {safe_filename}')
+        except Exception as log_error:
+            logger.warning(f'记录下载日志失败: {str(log_error)}')
+        
+        # 直接返回StreamingResponse，避免使用ResponseUtil.streaming可能的问题
+        return StreamingResponse(
+            content=file_generator,
+            headers=headers,
+            media_type='application/vnd.openxmlformats-officedocument.wordprocessingml.document'
+        )
+        
+    except ServiceException as e:
+        logger.error(f'下载论文失败 (ServiceException): {e.message if hasattr(e, "message") else str(e)}')
+        return ResponseUtil.error(msg=e.message if hasattr(e, 'message') else str(e))
+    except Exception as e:
+        error_msg = str(e) if str(e) else repr(e)
+        logger.error(f'下载论文失败: {error_msg}', exc_info=True)
+        return ResponseUtil.error(msg=f'下载失败: {error_msg}')

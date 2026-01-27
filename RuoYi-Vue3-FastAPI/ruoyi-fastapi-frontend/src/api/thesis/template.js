@@ -17,12 +17,13 @@ export function getTemplate(templateId) {
   })
 }
 
-// 新增模板
+// 新增模板（格式解析在后台异步执行，不需要等待）
 export function addTemplate(data) {
   return request({
     url: '/thesis/template',
     method: 'post',
-    data: data
+    data: data,
+    timeout: 30 * 1000  // 30秒超时（足够文件上传和模板创建，格式解析在后台进行）
   })
 }
 

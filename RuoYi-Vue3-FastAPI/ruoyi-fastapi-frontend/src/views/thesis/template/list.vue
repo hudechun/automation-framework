@@ -348,14 +348,20 @@ const handlePreview = (row) => {
 const submitForm = () => {
   proxy.$refs.formRef.validate(async (valid) => {
     if (valid) {
-      if (form.templateId) {
-        await updateTemplate(form)
-      } else {
-        await addTemplate(form)
+      try {
+        if (form.templateId) {
+          await updateTemplate(form)
+          ElMessage.success('更新成功')
+        } else {
+          await addTemplate(form)
+          ElMessage.success('模板上传成功，格式解析将在后台进行')
+        }
+        // 立即关闭窗口，不等待后台处理
+        dialogVisible.value = false
+        getList()
+      } catch (error) {
+        ElMessage.error(error.message || '操作失败')
       }
-      ElMessage.success('操作成功')
-      dialogVisible.value = false
-      getList()
     }
   })
 }

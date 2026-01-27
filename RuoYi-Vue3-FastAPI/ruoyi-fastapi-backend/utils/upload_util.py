@@ -92,6 +92,13 @@ class UploadUtil:
         :param filepath: 文件路径
         :yield: 二进制数据
         """
+        # 检查文件是否存在
+        if not os.path.exists(filepath):
+            from utils.log_util import logger
+            logger.error(f"文件不存在: {filepath}")
+            raise FileNotFoundError(f"文件不存在: {filepath}")
+        
+        # 使用二进制模式打开文件，避免编码问题
         async with aiofiles.open(filepath, 'rb') as response_file:
             async for chunk in response_file:
                 yield chunk

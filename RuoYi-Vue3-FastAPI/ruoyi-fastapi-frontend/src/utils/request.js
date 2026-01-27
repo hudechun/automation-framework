@@ -33,12 +33,15 @@ service.interceptors.request.use(config => {
     config.headers['Authorization'] = 'Bearer ' + getToken() // 让每个请求携带自定义token 请根据实际情况自行修改
   }
   
-  // 检查是否为长时间任务（AI生成相关接口）
+  // 检查是否为长时间任务（AI生成相关接口、文件上传等）
   const longTaskUrls = [
     '/thesis/paper/',
     '/thesis/paper/.*/outline',
     '/thesis/paper/.*/chapter',
-    '/thesis/paper/.*/chapters/batch'
+    '/thesis/paper/.*/chapters/batch',
+    '/common/upload',  // 文件上传（可能包含大文件）
+    '/thesis/template',  // 模板上传（需要AI解析格式）
+    '/thesis/template/.*'  // 模板相关接口（可能包含格式解析）
   ]
   const isLongTask = longTaskUrls.some(pattern => {
     const regex = new RegExp(pattern.replace(/\*/g, '.*'))
@@ -88,7 +91,7 @@ service.interceptors.request.use(config => {
   return config
 }, error => {
     console.log(error)
-    Promise.reject(error)
+    return Promise.reject(error)
 })
 
 // 响应拦截器

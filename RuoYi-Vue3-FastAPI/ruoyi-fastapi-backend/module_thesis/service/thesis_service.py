@@ -232,7 +232,9 @@ class ThesisService:
                 'template_id': getattr(thesis_dict, 'template_id', None) if thesis_dict else None
             }
             
-            ai_outline = await AiGenerationService.generate_outline(query_db, thesis_info)
+            # 提取template_id作为单独参数传递
+            template_id = thesis_info.get('template_id')
+            ai_outline = await AiGenerationService.generate_outline(query_db, thesis_info, template_id=template_id)
             
             # 直接保存字典对象，SQLAlchemy 的 JSON 字段会自动处理
             # 不需要使用 json.dumps()，否则会导致双重编码
@@ -517,11 +519,15 @@ class ThesisService:
             from module_thesis.service.ai_generation_service import AiGenerationService
 
             # 批量生成章节内容（部分成功策略 + 断点续传）
+            # 确保按照chapter_number顺序生成（与大纲顺序一致）
+            chapters_data_sorted = sorted(chapters_data, key=lambda x: x.chapter_number if hasattr(x, 'chapter_number') and isinstance(x.chapter_number, int) else 999)
+            logger.info(f"章节生成顺序：{[c.chapter_number if hasattr(c, 'chapter_number') else 'N/A' for c in chapters_data_sorted]}")
+            
             generated_chapters = []
             failed_chapters = []
             skipped_chapters = []  # 已完成的章节（跳过）
             
-            for chapter_data in chapters_data:
+            for chapter_data in chapters_data_sorted:
                 # 检查章节是否已存在且已完成
                 existing_chapter = await ThesisChapterDao.get_chapter_by_title_and_thesis(
                     query_db, thesis_id, chapter_data.chapter_title
@@ -1314,11 +1320,39 @@ class ThesisService:
                 }
             )
             
-        except ServiceException:
+        except ServiceException as e:
             await query_db.rollback()
-            raise
+            # 如果格式化失败，确保不留下不完整的文件
+            import os
+            from pathlib import Path
+            formatted_file_path = Path('uploads/thesis/formatted') / f'thesis_{thesis_id}_formatted.docx'
+            formatted_file_path = formatted_file_path.resolve()
+            if formatted_file_path.exists():
+                try:
+                    # 检查文件大小，如果文件很小（可能是错误信息），删除它
+                    file_size = formatted_file_path.stat().st_size
+                    if file_size < 1024:  # 小于1KB，可能是错误信息
+                        formatted_file_path.unlink()
+                        logger.warning(f"删除可能包含错误信息的小文件: {formatted_file_path}")
+                except Exception as del_error:
+                    logger.warning(f"删除不完整文件失败: {str(del_error)}")
+            raise e
         except Exception as e:
             await query_db.rollback()
+            # 如果格式化失败，确保不留下不完整的文件
+            import os
+            from pathlib import Path
+            formatted_file_path = Path('uploads/thesis/formatted') / f'thesis_{thesis_id}_formatted.docx'
+            formatted_file_path = formatted_file_path.resolve()
+            if formatted_file_path.exists():
+                try:
+                    # 检查文件大小，如果文件很小（可能是错误信息），删除它
+                    file_size = formatted_file_path.stat().st_size
+                    if file_size < 1024:  # 小于1KB，可能是错误信息
+                        formatted_file_path.unlink()
+                        logger.warning(f"删除可能包含错误信息的小文件: {formatted_file_path}")
+                except Exception as del_error:
+                    logger.warning(f"删除不完整文件失败: {str(del_error)}")
             logger.error(f"格式化论文失败: {str(e)}", exc_info=True)
             raise ServiceException(message=f'格式化论文失败: {str(e)}')
     

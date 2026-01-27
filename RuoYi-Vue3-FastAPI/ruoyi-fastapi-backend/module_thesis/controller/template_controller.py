@@ -4,7 +4,7 @@
 from datetime import datetime
 from typing import Annotated
 
-from fastapi import Path, Query, Request, Response
+from fastapi import Path, Query, Request, Response, BackgroundTasks
 from pydantic_validation_decorator import ValidateFields
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -89,7 +89,7 @@ async def get_template_detail(
 @template_controller.post(
     '',
     summary='创建模板',
-    description='创建新的格式模板',
+    description='创建新的格式模板（格式解析在后台异步执行）',
     response_model=ResponseBaseModel,
     dependencies=[UserInterfaceAuthDependency('thesis:template:add')],
 )
@@ -98,10 +98,20 @@ async def get_template_detail(
 async def create_template(
     request: Request,
     template_data: FormatTemplateModel,
+    background_tasks: BackgroundTasks,
     query_db: Annotated[AsyncSession, DBSessionDependency()],
     current_user: Annotated[CurrentUserModel, CurrentUserDependency()],
 ) -> Response:
     """创建模板"""
+    import sys
+    print("=" * 100)
+    print(f"[控制器] 收到创建模板请求")
+    print(f"  模板名称: {template_data.template_name}")
+    print(f"  文件路径: {template_data.file_path}")
+    print(f"  background_tasks: {background_tasks}")
+    print("=" * 100)
+    sys.stdout.flush()
+    
     template_data.create_by = current_user.user.user_name
     template_data.create_time = datetime.now()
     template_data.update_by = current_user.user.user_name
@@ -110,9 +120,25 @@ async def create_template(
     # 管理员创建为官方模板，普通用户创建为用户模板
     user_id = None if current_user.user.admin else current_user.user.user_id
     
-    result = await TemplateService.create_template(query_db, template_data, user_id)
-    logger.info(result.message)
-    return ResponseUtil.success(msg=result.message, data=result.result)
+    try:
+        result = await TemplateService.create_template(
+            query_db, 
+            template_data, 
+            user_id, 
+            background_tasks=background_tasks
+        )
+        print(f"[控制器] 模板创建成功: {result.message}")
+        print(f"  模板ID: {result.result.get('template_id') if result.result else 'N/A'}")
+        sys.stdout.flush()
+        logger.info(result.message)
+        return ResponseUtil.success(msg=result.message, data=result.result)
+    except Exception as e:
+        print(f"[控制器] 模板创建失败: {str(e)}")
+        import traceback
+        print(traceback.format_exc())
+        sys.stdout.flush()
+        logger.error(f"模板创建失败: {str(e)}", exc_info=True)
+        raise
 
 
 @template_controller.put(
@@ -312,3 +338,59 @@ async def apply_template(
     )
     logger.info(result.message)
     return ResponseUtil.success(msg=result.message, data=result.result)
+
+
+@template_controller.post(
+    '/{template_id}/parse-format',
+    summary='手动触发格式解析（测试用）',
+    description='手动触发模板格式解析，用于测试和调试',
+    response_model=ResponseBaseModel,
+    dependencies=[UserInterfaceAuthDependency('thesis:template:edit')],
+)
+async def parse_template_format_manual(
+    request: Request,
+    template_id: Annotated[int, Path(description='模板ID')],
+    query_db: Annotated[AsyncSession, DBSessionDependency()],
+) -> Response:
+    """手动触发格式解析（测试用）"""
+    import sys
+    print("=" * 100)
+    print(f"[手动触发] 开始解析模板格式 - 模板ID: {template_id}")
+    print("=" * 100)
+    sys.stdout.flush()
+    
+    try:
+        # 获取模板信息
+        template = await TemplateService.get_template_detail(query_db, template_id)
+        if not template:
+            return ResponseUtil.error(msg=f'模板不存在: {template_id}')
+        
+        # 获取文件路径
+        file_path = getattr(template, 'file_path', None) or getattr(template, 'template_file_path', None)
+        if not file_path:
+            return ResponseUtil.error(msg='模板文件路径不存在')
+        
+        print(f"[手动触发] 模板文件路径: {file_path}")
+        sys.stdout.flush()
+        
+        # 直接调用解析函数（同步执行，可以看到输出）
+        from module_thesis.service.template_service import TemplateService
+        await TemplateService._parse_template_format_in_background(template_id, file_path)
+        
+        print("=" * 100)
+        print(f"[手动触发] 格式解析完成 - 模板ID: {template_id}")
+        print("=" * 100)
+        sys.stdout.flush()
+        
+        return ResponseUtil.success(msg='格式解析完成，请查看控制台输出')
+    except Exception as e:
+        import traceback
+        error_msg = str(e)
+        print("=" * 100)
+        print(f"[手动触发] 格式解析失败 - 模板ID: {template_id}")
+        print(f"错误: {error_msg}")
+        print(traceback.format_exc())
+        print("=" * 100)
+        sys.stdout.flush()
+        logger.error(f'手动触发格式解析失败: {error_msg}', exc_info=True)
+        return ResponseUtil.error(msg=f'格式解析失败: {error_msg}')
