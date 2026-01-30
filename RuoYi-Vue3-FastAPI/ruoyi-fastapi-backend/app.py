@@ -86,15 +86,11 @@ def create_app() -> FastAPI:
     # 配置文档静态资源
     setup_docs_static_resources()
     # 初始化FastAPI对象
-    # openapi_url 用相对路径，直连 9099 和经 Nginx /prod-api 都能正确加载
     app = FastAPI(
         title=AppConfig.app_name,
         description=f'{AppConfig.app_name}接口文档',
         version=AppConfig.app_version,
         lifespan=lifespan,
-        openapi_url="../openapi.json",
-        docs_url="/docs",
-        redoc_url="/redoc",
     )
 
     # 挂载子应用
