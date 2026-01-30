@@ -41,7 +41,7 @@ COL_KEY_ALIASES: dict[str, list[str]] = {
 # Excel 表头与字段映射（与 layout_config 一致）
 EXCEL_HEADERS = [
     "姓名", "性别", "出生日期", "民族", "学校名称", "层次", "专业", "学制",
-    "学历类别", "分院", "系所", "入学日期", "预计毕业日期", "照片", "验证有效日期",
+    "学历类别", "学习形式", "分院", "系所", "入学日期", "预计毕业日期", "照片", "验证有效日期",
 ]
 EXCEL_HEADER_TO_DB = {
     "姓名": "name",
@@ -53,6 +53,7 @@ EXCEL_HEADER_TO_DB = {
     "专业": "major",
     "学制": "duration",
     "学历类别": "education_type",
+    "学习形式": "learning_form",
     "分院": "branch",
     "系所": "department",
     "入学日期": "enrollment_date",
@@ -116,6 +117,11 @@ class StudentVerificationService:
         with open(path, "wb") as f:
             f.write(photo_bytes)
         return path
+
+    @classmethod
+    async def update_photo_blob(cls, db: AsyncSession, student_id: int, photo_bytes: bytes) -> None:
+        """更新学生的 photo_blob 字段（上传时同步存入数据库）"""
+        await StudentVerificationDao.update_by_id(db, student_id, {"photo_blob": photo_bytes})
 
     @staticmethod
     def _report_fill_script_path() -> str:
@@ -375,6 +381,7 @@ class StudentVerificationService:
             "major": _s("专业"),
             "duration": _s("学制"),
             "education_type": _s("学历类别"),
+            "learning_form": _s("学习形式"),
             "branch": _s("分院"),
             "department": _s("系所"),
             "enrollment_date": date_fmt(get_cell("入学日期")) or _s("入学日期"),
@@ -463,6 +470,7 @@ class StudentVerificationService:
             "专业": student.major or "",
             "学制": student.duration or "",
             "学历类别": student.education_type or "",
+            "学习形式": student.learning_form or "",
             "分院": student.branch or "",
             "系所": student.department or "",
             "入学日期": fmt(student.enrollment_date),

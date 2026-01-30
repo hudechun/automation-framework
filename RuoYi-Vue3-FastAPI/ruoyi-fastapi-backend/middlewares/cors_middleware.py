@@ -9,9 +9,11 @@ def add_cors_middleware(app: FastAPI) -> None:
     :param app: FastAPI对象
     :return:
     """
-    # 前端页面url
+    # 前端页面url（含 localhost 默认 80 端口）
     origins = [
+        'http://localhost',
         'http://localhost:80',
+        'http://127.0.0.1',
         'http://127.0.0.1:80',
     ]
 

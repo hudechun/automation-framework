@@ -275,8 +275,8 @@ def fill_from_ai_config(
             fill = _parse_fill(update_date_cfg)
             draw_text_at(img, str(ud_value), vbr, update_date_cfg.get("font_size", 12), font_path, fill=fill)
 
-    # 2) 各字段（跳过「更新日期」；跳过「学习形式」「学籍状态」，模板上已有不填）
-    SKIP_FIELD_NAMES = {"更新日期", "学习形式", "学籍状态"}
+    # 2) 各字段（跳过「更新日期」；跳过「学籍状态」，模板上已有不填）
+    SKIP_FIELD_NAMES = {"更新日期", "学籍状态"}
     for name, field in fields.items():
         if name in SKIP_FIELD_NAMES:
             continue

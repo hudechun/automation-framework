@@ -25,6 +25,7 @@ class StudentVerificationListVO(BaseModel):
     major: Optional[str] = None
     duration: Optional[str] = None
     education_type: Optional[str] = None
+    learning_form: Optional[str] = None
     branch: Optional[str] = None
     department: Optional[str] = None
     enrollment_date: Optional[str] = None

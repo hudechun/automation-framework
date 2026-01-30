@@ -13,7 +13,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from common.aspect.db_seesion import DBSessionDependency
 from common.aspect.pre_auth import PreAuthDependency
 from common.router import APIRouterPro
-from common.vo import DataResponseModel, PageResponseModel
+from common.vo import DataResponseModel, PageModel, PageResponseModel
 from exceptions.exception import ServiceException
 from module_student.entity.vo.student_verification_vo import StudentVerificationListVO
 from module_student.service.student_verification_service import StudentVerificationService
@@ -52,6 +52,19 @@ async def list_students(
     if verification_code:
         q["verification_code"] = verification_code
     result = await StudentVerificationService.list_students(query_db, q, is_page=True)
+    # 排除 photo_blob，避免 JSON 序列化 binary 时 utf-8 解码报错
+    if hasattr(result, "rows") and result.rows:
+        clean_rows = [
+            StudentVerificationListVO.model_validate(r).model_dump(by_alias=True)
+            for r in result.rows
+        ]
+        result = PageModel(
+            rows=clean_rows,
+            pageNum=result.page_num,
+            pageSize=result.page_size,
+            total=result.total,
+            hasNext=result.has_next,
+        )
     return ResponseUtil.success(model_content=result)
 
 
@@ -130,12 +143,16 @@ async def upload_photo(
         raise ServiceException(message="照片文件为空")
     try:
         path = StudentVerificationService.save_photo_file(code, content)
-        logger.info("upload_photo success: code=%s path=%s size=%d", code, path, len(content))
-        return ResponseUtil.success(msg="上传成功", data={"path": path})
+        await StudentVerificationService.update_photo_blob(query_db, obj.id, content)
+        await query_db.commit()
+        logger.info("upload_photo success: code=%s path=%s size=%d (saved to DB)", code, path, len(content))
+        return ResponseUtil.success(msg="上传成功（已存入文件和数据库）", data={"path": path})
     except OSError as e:
+        await query_db.rollback()
         logger.exception("upload_photo OSError: code=%s err=%s", code, e)
         raise ServiceException(message=f"保存文件失败：{e}" if e.strerror else str(e))
     except Exception as e:
+        await query_db.rollback()
         logger.exception("upload_photo: code=%s err=%s", code, e)
         raise ServiceException(message=str(e) or "上传失败")
 

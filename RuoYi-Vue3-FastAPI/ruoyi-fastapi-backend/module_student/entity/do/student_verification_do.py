@@ -30,6 +30,7 @@ class StudentVerification(Base):
     major = Column(String(100), nullable=True, server_default="''", comment="专业")
     duration = Column(String(32), nullable=True, server_default="''", comment="学制")
     education_type = Column(String(64), nullable=True, server_default="''", comment="学历类别")
+    learning_form = Column(String(64), nullable=True, server_default="''", comment="学习形式")
     branch = Column(String(100), nullable=True, server_default="''", comment="分院")
     department = Column(String(100), nullable=True, server_default="''", comment="系所")
     enrollment_date = Column(String(32), nullable=True, server_default="''", comment="入学日期")

@@ -15,6 +15,7 @@ create table student_verification (
   major                varchar(100)   default ''                 comment '专业',
   duration             varchar(32)     default ''                 comment '学制',
   education_type       varchar(64)    default ''                 comment '学历类别',
+  learning_form        varchar(64)    default ''                 comment '学习形式',
   branch               varchar(100)   default ''                 comment '分院',
   department           varchar(100)   default ''                 comment '系所',
   enrollment_date      varchar(32)    default ''                 comment '入学日期',

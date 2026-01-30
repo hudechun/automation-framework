@@ -39,6 +39,7 @@
       <el-table-column label="学校名称" align="center" prop="schoolName" min-width="120" show-overflow-tooltip />
       <el-table-column label="层次" align="center" prop="level" width="80" />
       <el-table-column label="专业" align="center" prop="major" min-width="100" show-overflow-tooltip />
+      <el-table-column label="学习形式" align="center" prop="learningForm" width="90" show-overflow-tooltip />
       <el-table-column label="验证有效日期" align="center" prop="validUntil" width="120" />
       <el-table-column label="操作" align="center" width="180" fixed="right">
         <template #default="{ row }">

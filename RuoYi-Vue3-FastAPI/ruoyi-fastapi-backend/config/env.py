@@ -2,6 +2,7 @@ import argparse
 import configparser
 import os
 import sys
+from pathlib import Path
 from typing import Literal
 
 from dotenv import load_dotenv
@@ -212,8 +213,8 @@ class GetConfig:
                 env_value = ini_config['settings'].get('env')
                 os.environ['APP_ENV'] = env_value if env_value else 'dev'
         elif 'uvicorn' in sys.argv[0]:
-            # 使用uvicorn启动时，命令行参数需要按照uvicorn的文档进行配置，无法自定义参数
-            pass
+            # 使用uvicorn启动时默认 dev 环境
+            os.environ.setdefault('APP_ENV', 'dev')
         else:
             # 使用argparse定义命令行参数
             parser = argparse.ArgumentParser(description='命令行参数')
@@ -229,8 +230,10 @@ class GetConfig:
         # 运行环境不为空时按命令行参数加载对应.env文件
         if run_env != '':
             env_file = f'.env.{run_env}'
-        # 加载配置
-        load_dotenv(env_file)
+        # 使用绝对路径，确保无论从何目录启动都能正确加载
+        backend_root = Path(__file__).resolve().parent.parent
+        env_path = backend_root / env_file
+        load_dotenv(env_path)
 
 
 # 实例化获取配置类
