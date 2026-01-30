@@ -84,6 +84,40 @@ class StudentVerificationService:
         return os.path.join(d, "uploads", "pic", "layout_config.json")
 
     @staticmethod
+    def _photo_dir() -> str:
+        """照片文件存储目录：uploads/pic/photo/"""
+        return os.path.join(StudentVerificationService._backend_dir(), "uploads", "pic", "photo")
+
+    @classmethod
+    def _photo_file_path(cls, verification_code: str) -> str | None:
+        """按验证码查找照片文件路径，支持 .png/.jpg/.jpeg，优先 .png"""
+        if not verification_code or not verification_code.strip():
+            return None
+        code = verification_code.strip()
+        d = cls._photo_dir()
+        for ext in (".png", ".jpg", ".jpeg"):
+            p = os.path.join(d, f"{code}{ext}")
+            if os.path.isfile(p):
+                return p
+        return None
+
+    @classmethod
+    def save_photo_file(cls, verification_code: str, photo_bytes: bytes) -> str:
+        """保存照片到 uploads/pic/photo/{验证码}.png，返回保存路径"""
+        code = (verification_code or "").strip()
+        if not code:
+            raise ValueError("验证码不能为空")
+        photo_dir = cls._photo_dir()
+        try:
+            os.makedirs(photo_dir, exist_ok=True)
+        except OSError as e:
+            raise OSError(f"创建目录失败 {photo_dir}: {e}") from e
+        path = os.path.abspath(os.path.join(photo_dir, f"{code}.png"))
+        with open(path, "wb") as f:
+            f.write(photo_bytes)
+        return path
+
+    @staticmethod
     def _report_fill_script_path() -> str:
         """scripts/report_fill_from_ai.py 相对于项目根目录."""
         backend_dir = StudentVerificationService._backend_dir()
@@ -351,6 +385,14 @@ class StudentVerificationService:
             "create_by": create_by or "",
         }
         await StudentVerificationDao.add(db, data)
+        if photo_blob and code:
+            try:
+                os.makedirs(cls._photo_dir(), exist_ok=True)
+                p = os.path.join(cls._photo_dir(), f"{code}.png")
+                with open(p, "wb") as f:
+                    f.write(photo_blob)
+            except Exception as e:
+                logger.warning("保存照片文件失败 %s: %s", code, e)
 
     @classmethod
     async def import_from_excel(cls, db: AsyncSession, file_path: str, create_by: str = "") -> dict:
@@ -437,6 +479,10 @@ class StudentVerificationService:
                 photo_path = os.path.join(tmp, "photo.png")
                 with open(photo_path, "wb") as f:
                     f.write(student.photo_blob)
+            else:
+                file_path = cls._photo_file_path(student.verification_code or "")
+                if file_path and os.path.isfile(file_path):
+                    photo_path = file_path
             out_path = output_path or os.path.join(tmp, "result.png")
             cmd = [
                 "python",

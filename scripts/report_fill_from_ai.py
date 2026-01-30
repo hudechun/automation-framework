@@ -150,22 +150,86 @@ def draw_text_at(img: Image.Image, text: str, value_bbox_rel: list, font_size: i
     draw.text((x, y), text, font=font, fill=fill)
 
 
-def paste_photo(img: Image.Image, photo_path: str, photo_cfg: dict, tw: int, th: int) -> None:
+# 当 config.photo 为 null 时使用的默认照片区域（右上角，相对坐标 0~1）
+DEFAULT_PHOTO_REL = {"x_rel": 0.52, "y_rel": 0.12, "w_rel": 0.40, "h_rel": 0.26}
+# 照片显示尺寸缩放：1/4 表示宽高各缩小为原来的 1/4
+PHOTO_SCALE = 0.25
+
+
+def _photo_rect(photo_cfg: dict, tw: int, th: int) -> tuple[int, int, int, int] | None:
+    """从 photo_cfg 计算 (x, y, w, h)。支持 w/h 固定像素或 w_rel/h_rel 相对比例。"""
     if "x_rel" in photo_cfg:
         x = int(photo_cfg["x_rel"] * tw)
         y = int(photo_cfg["y_rel"] * th)
-        w = int(photo_cfg["w_rel"] * tw)
-        h = int(photo_cfg["h_rel"] * th)
     else:
         x = int(photo_cfg.get("x", 0))
         y = int(photo_cfg.get("y", 0))
+    if "w" in photo_cfg and "h" in photo_cfg:
+        w = int(photo_cfg["w"])
+        h = int(photo_cfg["h"])
+    elif "w_rel" in photo_cfg and "h_rel" in photo_cfg:
+        w = int(photo_cfg["w_rel"] * tw)
+        h = int(photo_cfg["h_rel"] * th)
+    else:
         w = int(photo_cfg.get("w", 0))
         h = int(photo_cfg.get("h", 0))
     if w <= 0 or h <= 0:
+        return None
+    return (x, y, w, h)
+
+
+def paste_photo(img: Image.Image, photo_path: str, photo_cfg: dict, tw: int, th: int) -> None:
+    rect = _photo_rect(photo_cfg, tw, th)
+    if rect is None:
         return
+    x, y, w, h = rect
+    if "w" in photo_cfg and "h" in photo_cfg:
+        w2, h2 = w, h
+        px, py = x, y
+    else:
+        scale = photo_cfg.get("scale", PHOTO_SCALE)
+        w2, h2 = int(w * scale), int(h * scale)
+        if w2 <= 0 or h2 <= 0:
+            return
+        px = x + (w - w2) // 2
+        py = y + (h - h2) // 2
     photo = Image.open(photo_path).convert("RGB")
-    photo = photo.resize((w, h), Image.Resampling.LANCZOS)
-    img.paste(photo, (x, y))
+    photo = photo.resize((w2, h2), Image.Resampling.LANCZOS)
+    img.paste(photo, (px, py))
+
+
+def draw_photo_placeholder(
+    img: Image.Image, photo_cfg: dict, tw: int, th: int, font_path: str | None = None
+) -> None:
+    """无照片时绘制灰色框 +「暂无照片」"""
+    rect = _photo_rect(photo_cfg, tw, th)
+    if rect is None:
+        return
+    x, y, w, h = rect
+    if "w" in photo_cfg and "h" in photo_cfg:
+        px, py, w2, h2 = x, y, w, h
+    else:
+        scale = photo_cfg.get("scale", PHOTO_SCALE)
+        w2, h2 = int(w * scale), int(h * scale)
+        if w2 <= 0 or h2 <= 0:
+            return
+        px = x + (w - w2) // 2
+        py = y + (h - h2) // 2
+    draw = ImageDraw.Draw(img)
+    fill = (240, 240, 240)
+    outline = (200, 200, 200)
+    draw.rectangle([px, py, px + w2, py + h2], fill=fill, outline=outline, width=2)
+    font_size = max(10, min(w2, h2) // 8)
+    font = get_font(font_path, font_size)
+    text = "暂无照片"
+    if hasattr(draw, "textbbox"):
+        bbox = draw.textbbox((0, 0), text, font=font)
+        tw_text, th_text = bbox[2] - bbox[0], bbox[3] - bbox[1]
+    else:
+        tw_text, th_text = draw.textsize(text, font=font)  # type: ignore
+    tx = px + (w2 - tw_text) // 2
+    ty = py + (h2 - th_text) // 2
+    draw.text((tx, ty), text, font=font, fill=(150, 150, 150))
 
 
 def fill_from_ai_config(
@@ -273,13 +337,14 @@ def fill_from_ai_config(
                 vc_fill = _parse_fill(vc_cfg)
                 draw_text_at(img, vc_value, vbr, vc_cfg.get("font_size", 12), vc_font_path, fill=vc_fill)
 
-    # 3) 照片（config 中 "photo": null 或 "skip_photo": true 时不贴图）
-    if config.get("skip_photo") or config.get("photo") is None:
-        pass
-    else:
-        photo_cfg = config.get("photo") or {}
-        if photo_cfg and photo_path and Path(photo_path).exists():
-            paste_photo(img, photo_path, photo_cfg, tw, th)
+    # 3) 照片（config 中 "skip_photo": true 时跳过；有 photo 区域时贴图或占位）
+    if not config.get("skip_photo"):
+        photo_cfg = config.get("photo") or DEFAULT_PHOTO_REL
+        if photo_cfg:
+            if photo_path and Path(photo_path).exists():
+                paste_photo(img, photo_path, photo_cfg, tw, th)
+            else:
+                draw_photo_placeholder(img, photo_cfg, tw, th, font_path)
 
     Path(output_path).parent.mkdir(parents=True, exist_ok=True)
     img.save(output_path, quality=95)

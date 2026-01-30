@@ -40,6 +40,8 @@ service.interceptors.request.use(config => {
     '/thesis/paper/.*/chapter',
     '/thesis/paper/.*/chapters/batch',
     '/common/upload',  // 文件上传（可能包含大文件）
+    '/student/verification/import',  // Excel 导入
+    '/student/verification/upload-photo',  // 照片上传
     '/thesis/template',  // 模板上传（需要AI解析格式）
     '/thesis/template/.*'  // 模板相关接口（可能包含格式解析）
   ]

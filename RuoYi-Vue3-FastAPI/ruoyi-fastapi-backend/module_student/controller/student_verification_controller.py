@@ -6,7 +6,7 @@ import tempfile
 from typing import Annotated
 
 import qrcode
-from fastapi import File, Query, Request, UploadFile
+from fastapi import File, Form, Query, Request, UploadFile
 from fastapi.responses import StreamingResponse
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -104,6 +104,40 @@ async def import_students(
                 os.unlink(tmp_path)
             except Exception:
                 pass
+
+
+@student_verification_controller.post(
+    "/upload-photo",
+    summary="上传学生照片（按验证码存储到 uploads/pic/photo/{验证码}.png）",
+)
+async def upload_photo(
+    request: Request,
+    query_db: Annotated[AsyncSession, DBSessionDependency()],
+    verification_code: Annotated[str, Form(description="16 位验证码")],
+    file: Annotated[UploadFile, File(description="照片文件，支持 png/jpg/jpeg")],
+):
+    code = (verification_code or "").strip()
+    if len(code) != 16:
+        raise ServiceException(message="验证码必须为 16 位")
+    obj = await StudentVerificationService.get_by_code(query_db, code)
+    if not obj:
+        raise ServiceException(message="未找到该验证码对应的学生")
+    fn = (file.filename or "").lower()
+    if not fn.endswith((".png", ".jpg", ".jpeg")):
+        raise ServiceException(message="照片格式需为 png、jpg 或 jpeg")
+    content = await file.read()
+    if not content:
+        raise ServiceException(message="照片文件为空")
+    try:
+        path = StudentVerificationService.save_photo_file(code, content)
+        logger.info("upload_photo success: code=%s path=%s size=%d", code, path, len(content))
+        return ResponseUtil.success(msg="上传成功", data={"path": path})
+    except OSError as e:
+        logger.exception("upload_photo OSError: code=%s err=%s", code, e)
+        raise ServiceException(message=f"保存文件失败：{e}" if e.strerror else str(e))
+    except Exception as e:
+        logger.exception("upload_photo: code=%s err=%s", code, e)
+        raise ServiceException(message=str(e) or "上传失败")
 
 
 @student_verification_controller.get(

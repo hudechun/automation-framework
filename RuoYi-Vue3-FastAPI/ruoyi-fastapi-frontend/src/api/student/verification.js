@@ -17,16 +17,41 @@ export function getStudent(studentId) {
   })
 }
 
+// 封装 multipart 请求：删除 Content-Type 让浏览器自动设置 boundary
+function multipartRequest(options) {
+  return request({
+    ...options,
+    transformRequest: [(data, headers) => {
+      if (data instanceof FormData) {
+        delete headers['Content-Type']
+      }
+      return data
+    }]
+  })
+}
+
 // Excel 导入（上传文件）
 export function importStudents(file) {
   const formData = new FormData()
   formData.append('file', file)
-  return request({
+  return multipartRequest({
     url: '/student/verification/import',
     method: 'post',
     data: formData,
-    headers: { 'Content-Type': 'multipart/form-data' },
     timeout: 60000
+  })
+}
+
+// 上传学生照片（按验证码存储到 uploads/pic/photo/{验证码}.png）
+export function uploadPhoto(verificationCode, file) {
+  const formData = new FormData()
+  formData.append('verification_code', verificationCode)
+  formData.append('file', file)
+  return multipartRequest({
+    url: '/student/verification/upload-photo',
+    method: 'post',
+    data: formData,
+    timeout: 30000
   })
 }
 

@@ -44,6 +44,7 @@
         <template #default="{ row }">
           <el-button link type="primary" @click="handleViewReport(row)">报告图</el-button>
           <el-button link type="primary" @click="handleDownloadQr(row)">二维码</el-button>
+          <el-button link type="primary" @click="handleUploadPhoto(row)">上传照片</el-button>
         </template>
       </el-table-column>
     </el-table>
@@ -80,6 +81,33 @@
       </template>
     </el-dialog>
 
+    <!-- 上传照片 -->
+    <el-dialog title="上传学生照片" v-model="uploadPhotoVisible" width="400px" append-to-body>
+      <el-form label-width="90px">
+        <el-form-item label="姓名">{{ uploadPhotoRow?.name }}</el-form-item>
+        <el-form-item label="验证码">{{ uploadPhotoRow?.verificationCode }}</el-form-item>
+        <el-form-item label="照片">
+          <el-upload
+            ref="photoUploadRef"
+            :limit="1"
+            accept=".png,.jpg,.jpeg"
+            :auto-upload="false"
+            :on-change="handlePhotoFileChange"
+            :file-list="photoFileList"
+          >
+            <el-button type="primary">选择照片</el-button>
+            <template #tip>
+              <div class="el-upload__tip">支持 png、jpg、jpeg，将保存到 uploads/pic/photo/{验证码}.png</div>
+            </template>
+          </el-upload>
+        </el-form-item>
+      </el-form>
+      <template #footer>
+        <el-button @click="uploadPhotoVisible = false">取消</el-button>
+        <el-button type="primary" :loading="uploadPhotoLoading" @click="submitUploadPhoto">确定</el-button>
+      </template>
+    </el-dialog>
+
     <!-- 报告图预览 -->
     <el-dialog
       v-model="reportVisible"
@@ -97,7 +125,7 @@
 </template>
 
 <script setup name="StudentVerification">
-import { listStudent, importStudents, getReportImageBlob, getQrImageBlob } from '@/api/student/verification'
+import { listStudent, importStudents, uploadPhoto, getReportImageBlob, getQrImageBlob } from '@/api/student/verification'
 import { saveAs } from 'file-saver'
 
 const { proxy } = getCurrentInstance()
@@ -118,6 +146,12 @@ const importing = ref(false)
 const uploadRef = ref(null)
 const reportVisible = ref(false)
 const reportImageUrl = ref('')
+const uploadPhotoVisible = ref(false)
+const uploadPhotoRow = ref(null)
+const photoFileList = ref([])
+const photoSelectedFile = ref(null)
+const uploadPhotoLoading = ref(false)
+const photoUploadRef = ref(null)
 
 function getList() {
   loading.value = true
@@ -200,6 +234,42 @@ function handleDownloadQr(row) {
     .catch(() => {
       proxy.$modal.msgError('下载二维码失败')
     })
+}
+
+function handleUploadPhoto(row) {
+  uploadPhotoRow.value = row
+  photoFileList.value = []
+  photoSelectedFile.value = null
+  uploadPhotoVisible.value = true
+}
+
+function handlePhotoFileChange(file, fileList) {
+  photoSelectedFile.value = file.raw
+  photoFileList.value = fileList.slice(-1)
+}
+
+function submitUploadPhoto() {
+  const row = uploadPhotoRow.value
+  const file = photoSelectedFile.value
+  if (!row?.verificationCode) {
+    proxy.$modal.msgError('验证码不存在')
+    return
+  }
+  if (!file || !file.name.toLowerCase().match(/\.(png|jpg|jpeg)$/)) {
+    proxy.$modal.msgError('请选择 png、jpg 或 jpeg 格式的照片')
+    return
+  }
+  uploadPhotoLoading.value = true
+  uploadPhoto(row.verificationCode, file)
+    .then((res) => {
+      proxy.$modal.msgSuccess(res.msg || '上传成功')
+      uploadPhotoVisible.value = false
+    })
+    .catch((err) => {
+      const msg = err?.response?.data?.msg || err?.msg || err?.message || '上传失败'
+      proxy.$modal.msgError(msg)
+    })
+    .finally(() => { uploadPhotoLoading.value = false })
 }
 
 onUnmounted(() => {
