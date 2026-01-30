@@ -36,6 +36,27 @@ class FormatTemplateDao:
         return template_info
 
     @classmethod
+    async def get_template_names_by_ids(
+        cls, db: AsyncSession, template_ids: list[int]
+    ) -> dict[int, str]:
+        """
+        根据模板ID列表批量获取模板名称（template_id -> template_name）
+
+        :param db: 数据库会话
+        :param template_ids: 模板ID列表（去重后）
+        :return: 字典，key 为 template_id，value 为 template_name
+        """
+        if not template_ids:
+            return {}
+        ids = list(dict.fromkeys(template_ids))  # 去重保序
+        q = select(AiWriteFormatTemplate.template_id, AiWriteFormatTemplate.template_name).where(
+            AiWriteFormatTemplate.template_id.in_(ids),
+            AiWriteFormatTemplate.del_flag == '0',
+        )
+        result = (await db.execute(q)).all()
+        return {row.template_id: row.template_name for row in result}
+
+    @classmethod
     async def get_template_list(
         cls, db: AsyncSession, query_object: dict = None, is_page: bool = False
     ) -> Union[PageModel, list[dict[str, Any]]]:

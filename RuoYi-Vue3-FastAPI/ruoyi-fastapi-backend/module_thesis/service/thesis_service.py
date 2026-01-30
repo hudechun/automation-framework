@@ -25,9 +25,74 @@ from module_thesis.entity.vo import (
 from module_thesis.service.member_service import MemberService
 from utils.common_util import CamelCaseUtil
 from utils.log_util import logger
+import re
 
 
 class ThesisService:
+
+    @classmethod
+    async def _enrich_thesis_info_degree_and_major(
+        cls, query_db: AsyncSession, thesis_info: Dict[str, Any], thesis_dict: Any = None
+    ) -> None:
+        """补全 thesis_info 的 degree_level、major：论文表优先，空则从格式模板取，degree_level 再无则默认本科。"""
+        degree_level = (thesis_dict and getattr(thesis_dict, 'degree_level', None)) or thesis_info.get('degree_level') or ''
+        major = (thesis_dict and getattr(thesis_dict, 'major', None)) or thesis_info.get('major') or ''
+        template_id = thesis_info.get('template_id')
+        if template_id and (not degree_level or not major):
+            try:
+                from module_thesis.dao.template_dao import FormatTemplateDao
+                tpl = await FormatTemplateDao.get_template_by_id(query_db, int(template_id))
+                if tpl:
+                    if not degree_level:
+                        degree_level = getattr(tpl, 'degree_level', '') or '本科'
+                    if not major:
+                        major = getattr(tpl, 'major', '') or major
+            except Exception as e:
+                logger.debug(f"从格式模板补全 degree_level/major 失败: {e}")
+        if not degree_level:
+            degree_level = '本科'
+        thesis_info['degree_level'] = degree_level
+        thesis_info['major'] = major or thesis_info.get('major', '')
+
+    @staticmethod
+    def _clean_chapter_title(title: str) -> tuple[str, int]:
+        """
+        清理章节标题：移除编号前缀，应用正确的标题格式，并确定章节级别
+        
+        :param title: 原始标题
+        :return: (清理后的标题, 章节级别)
+        """
+        cleaned_title = title
+        
+        # 移除中文编号（如"第一章 XXX" -> "XXX"）
+        cleaned_title = re.sub(r'^第[一二三四五六七八九十]+章\s*', '', cleaned_title)
+        # 移除阿拉伯数字编号（如"1 XXX"、"1. XXX"、"1、XXX"、"1.1 XXX"、"1.1.1 XXX" -> "XXX"）
+        cleaned_title = re.sub(r'^\d+\.\d+\.\d+\s+', '', cleaned_title)  # 1.1.1 格式
+        cleaned_title = re.sub(r'^\d+\.\d+\s+', '', cleaned_title)  # 1.1 格式
+        cleaned_title = re.sub(r'^\d+[\.\s、]+\s*', '', cleaned_title)  # 数字+分隔符+空格
+        cleaned_title = re.sub(r'^\d+\s+', '', cleaned_title)  # 数字+空格（单独处理，确保匹配"1 目录"这种情况）
+        cleaned_title = cleaned_title.strip()
+        
+        # 根据章节标题应用正确的格式（特殊章节的特殊格式）
+        if '目录' in cleaned_title:
+            cleaned_title = '目　　录'  # 两个全角空格
+        elif '结论' in cleaned_title and cleaned_title != '结　　论':
+            cleaned_title = '结　　论'  # 两个全角空格
+        elif '致谢' in cleaned_title and cleaned_title != '致　　谢':
+            cleaned_title = '致　　谢'  # 两个全角空格
+        elif '参考文献' in cleaned_title and cleaned_title != '参 考 文 献':
+            cleaned_title = '参 考 文 献'  # 两个半角空格
+        
+        # 根据标题编号确定章节级别（如果标题包含编号格式）
+        chapter_level = 1  # 默认一级章节
+        if re.match(r'^\d+\.\d+\.\d+', title):  # 1.1.1 格式 → level 3
+            chapter_level = 3
+        elif re.match(r'^\d+\.\d+', title):  # 1.1 格式 → level 2
+            chapter_level = 2
+        elif re.match(r'^\d+', title):  # 1 格式 → level 1
+            chapter_level = 1
+        
+        return cleaned_title, chapter_level
     """
     论文管理服务类
     """
@@ -231,7 +296,7 @@ class ThesisService:
                 'total_words': getattr(thesis_dict, 'total_words', 0) if thesis_dict else 0,
                 'template_id': getattr(thesis_dict, 'template_id', None) if thesis_dict else None
             }
-            
+            await cls._enrich_thesis_info_degree_and_major(query_db, thesis_info, thesis_dict)
             # 提取template_id作为单独参数传递
             template_id = thesis_info.get('template_id')
             ai_outline = await AiGenerationService.generate_outline(query_db, thesis_info, template_id=template_id)
@@ -372,36 +437,48 @@ class ThesisService:
             thesis_info = {
                 'title': thesis_dict.title if thesis_dict else thesis.title,
                 'major': getattr(thesis_dict, 'major', '') if thesis_dict else '',
+                'research_direction': getattr(thesis_dict, 'research_direction', '') if thesis_dict else '',
                 'keywords': getattr(thesis_dict, 'keywords', '') if thesis_dict else '',
                 'total_words': getattr(thesis_dict, 'total_words', 0) if thesis_dict else 0,
                 'template_id': getattr(thesis_dict, 'template_id', None) if thesis_dict else None
             }
+            await cls._enrich_thesis_info_degree_and_major(query_db, thesis_info, thesis_dict)
+            # 先清理章节标题：移除编号前缀，应用正确的标题格式
+            cleaned_title, chapter_level = cls._clean_chapter_title(chapter_data.chapter_title)
+            logger.info(f"清理章节标题: '{chapter_data.chapter_title}' -> '{cleaned_title}', level={chapter_level}")
             
             # 从大纲中提取对应章节的小节信息
             sections = []
+            target_chapter_title = cleaned_title  # 使用清理后的标题进行匹配
             if outline_data_dict and 'chapters' in outline_data_dict:
                 # 查找对应章节号或章节标题的章节
                 target_chapter = None
                 for chapter in outline_data_dict['chapters']:
                     chapter_num = chapter.get('chapter_number')
                     chapter_title = chapter.get('chapter_title', '')
-                    # 匹配章节号或章节标题
+                    # 清理大纲中的标题用于匹配
+                    cleaned_chapter_title, _ = cls._clean_chapter_title(chapter_title)
+                    # 匹配章节号或章节标题（使用清理后的标题）
                     if (chapter_num and str(chapter_num) == str(chapter_data.chapter_number)) or \
-                       (chapter_title and chapter_title == chapter_data.chapter_title):
+                       (cleaned_chapter_title and cleaned_chapter_title == target_chapter_title):
                         target_chapter = chapter
+                        # 如果从大纲中找到章节，使用大纲中的标题（可能格式更正确）
+                        if cleaned_chapter_title:
+                            target_chapter_title = cleaned_chapter_title
                         break
                 
                 # 如果找到对应章节，提取小节信息
                 if target_chapter and 'sections' in target_chapter:
                     sections = target_chapter['sections']
             
+            # 使用清理后的标题传递给AI生成章节内容
             chapter_info = {
                 'chapter_number': chapter_data.chapter_number,
-                'chapter_title': chapter_data.chapter_title,
+                'chapter_title': target_chapter_title,  # 使用清理后的标题
                 'sections': sections  # 从大纲中提取的小节信息
             }
             
-            logger.info(f"开始生成章节 - 论文ID: {chapter_data.thesis_id}, 章节: {chapter_data.chapter_title}, 大纲上下文: {'已提供' if outline_context else '未提供'}")
+            logger.info(f"开始生成章节 - 论文ID: {chapter_data.thesis_id}, 章节: {target_chapter_title}, 大纲上下文: {'已提供' if outline_context else '未提供'}")
             ai_content = await AiGenerationService.generate_chapter(
                 query_db, thesis_info, chapter_info, outline_context
             )
@@ -410,11 +487,11 @@ class ThesisService:
             # 计算字数（改进的字数计算）
             word_count = cls._calculate_word_count(ai_content)
 
-            # 创建章节
+            # 创建章节（使用清理后的标题）
             chapter_dict = {
                 'thesis_id': chapter_data.thesis_id,
-                'title': chapter_data.chapter_title,
-                'level': 1,  # 默认一级章节
+                'title': target_chapter_title,  # 使用清理后的标题（可能与cleaned_title相同，但优先使用大纲中的标题）
+                'level': chapter_level,  # 根据标题编号确定级别
                 'order_num': chapter_data.chapter_number if isinstance(chapter_data.chapter_number, int) else 1,
                 'content': ai_content,
                 'word_count': word_count,
@@ -510,11 +587,12 @@ class ThesisService:
             thesis_info = {
                 'title': thesis_dict.title if thesis_dict else thesis.title,
                 'major': getattr(thesis_dict, 'major', '') if thesis_dict else '',
+                'research_direction': getattr(thesis_dict, 'research_direction', '') if thesis_dict else '',
                 'keywords': getattr(thesis_dict, 'keywords', '') if thesis_dict else '',
                 'total_words': getattr(thesis_dict, 'total_words', 0) if thesis_dict else 0,
                 'template_id': getattr(thesis_dict, 'template_id', None) if thesis_dict else None
             }
-
+            await cls._enrich_thesis_info_degree_and_major(query_db, thesis_info, thesis_dict)
             # 调用AI生成服务
             from module_thesis.service.ai_generation_service import AiGenerationService
 
@@ -548,11 +626,15 @@ class ThesisService:
                     logger.info(f"章节存在但未完成，删除旧记录重新生成 - 论文ID: {thesis_id}, 章节: {chapter_data.chapter_title}")
                     await ThesisChapterDao.delete_chapter(query_db, existing_chapter.chapter_id)
                 
+                # 清理章节标题：移除编号前缀，应用正确的标题格式
+                cleaned_title, chapter_level = cls._clean_chapter_title(chapter_data.chapter_title)
+                logger.info(f"批量生成 - 清理章节标题: '{chapter_data.chapter_title}' -> '{cleaned_title}', level={chapter_level}")
+                
                 # 先创建章节记录（状态为generating），用于保存进度
                 chapter_dict_pre = {
                     'thesis_id': thesis_id,
-                    'title': chapter_data.chapter_title,
-                    'level': 1,  # 默认一级章节
+                    'title': cleaned_title,  # 使用清理后的标题
+                    'level': chapter_level,  # 根据标题编号确定级别
                     'order_num': chapter_data.chapter_number if isinstance(chapter_data.chapter_number, int) else len(generated_chapters) + len(skipped_chapters) + 1,
                     'content': '',  # 暂时为空
                     'word_count': 0,
@@ -566,6 +648,7 @@ class ThesisService:
                     # 从大纲中提取对应章节的小节信息
                     from module_thesis.utils.outline_parser import extract_chapters_from_outline
                     sections = []
+                    target_chapter_title = cleaned_title  # 使用清理后的标题进行匹配
                     chapters_list = extract_chapters_from_outline(outline_data_dict)
                     if chapters_list:
                         # 查找对应章节号或章节标题的章节
@@ -573,19 +656,25 @@ class ThesisService:
                         for chapter in chapters_list:
                             chapter_num = chapter.get('chapter_number')
                             chapter_title = chapter.get('chapter_title', '')
-                            # 匹配章节号或章节标题
+                            # 清理大纲中的标题用于匹配
+                            cleaned_chapter_title, _ = cls._clean_chapter_title(chapter_title)
+                            # 匹配章节号或章节标题（使用清理后的标题）
                             if (chapter_num and str(chapter_num) == str(chapter_data.chapter_number)) or \
-                               (chapter_title and chapter_title == chapter_data.chapter_title):
+                               (cleaned_chapter_title and cleaned_chapter_title == target_chapter_title):
                                 target_chapter = chapter
+                                # 如果从大纲中找到章节，使用大纲中的标题（可能格式更正确）
+                                if cleaned_chapter_title:
+                                    target_chapter_title = cleaned_chapter_title
                                 break
                         
                         # 如果找到对应章节，提取小节信息
                         if target_chapter and 'sections' in target_chapter:
                             sections = target_chapter['sections']
                     
+                    # 使用清理后的标题传递给AI生成章节内容
                     chapter_info = {
                         'chapter_number': chapter_data.chapter_number,
-                        'chapter_title': chapter_data.chapter_title,
+                        'chapter_title': target_chapter_title,  # 使用清理后的标题
                         'sections': sections  # 从大纲中提取的小节信息
                     }
                     
@@ -598,8 +687,10 @@ class ThesisService:
                     word_count = cls._calculate_word_count(ai_content)
 
                     # 更新章节记录（从generating更新为completed）
+                    # 确保标题也是正确的（使用清理后的标题）
                     update_data = {
                         'chapter_id': chapter_id,
+                        'title': target_chapter_title,  # 使用清理后的标题（确保标题格式正确）
                         'content': ai_content,
                         'word_count': word_count,
                         'status': 'completed'
@@ -821,11 +912,12 @@ class ThesisService:
             thesis_info = {
                 'title': thesis_dict.title if thesis_dict else thesis.title,
                 'major': getattr(thesis_dict, 'major', '') if thesis_dict else '',
+                'research_direction': getattr(thesis_dict, 'research_direction', '') if thesis_dict else '',
                 'keywords': getattr(thesis_dict, 'keywords', '') if thesis_dict else '',
                 'total_words': getattr(thesis_dict, 'total_words', 0) if thesis_dict else 0,
                 'template_id': getattr(thesis_dict, 'template_id', None) if thesis_dict else None
             }
-            
+            await cls._enrich_thesis_info_degree_and_major(query_db, thesis_info, thesis_dict)
             # 调用AI生成服务
             from module_thesis.service.ai_generation_service import AiGenerationService
             

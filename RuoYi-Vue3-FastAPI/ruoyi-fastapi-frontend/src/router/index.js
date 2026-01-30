@@ -58,6 +58,13 @@ export const constantRoutes = [
     hidden: true
   },
   {
+    path: '/verify',
+    component: () => import('@/views/student/verify/index'),
+    name: 'Verify',
+    meta: { title: '学籍验证', noCache: true },
+    hidden: true
+  },
+  {
     path: '',
     component: Layout,
     redirect: '/index',

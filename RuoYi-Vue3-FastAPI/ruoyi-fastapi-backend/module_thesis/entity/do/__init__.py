@@ -24,6 +24,9 @@ from .template_do import (
     AiWriteTemplateFormatRule,
 )
 
+# 大纲提示词模板相关实体
+from .outline_prompt_template_do import AiWriteOutlinePromptTemplate
+
 # 订单和支付相关实体
 from .order_do import (
     AiWriteOrder,
@@ -45,6 +48,8 @@ __all__ = [
     # 格式模板
     'AiWriteFormatTemplate',
     'AiWriteTemplateFormatRule',
+    # 大纲提示词模板
+    'AiWriteOutlinePromptTemplate',
     # 订单支付
     'AiWriteOrder',
     'AiWriteFeatureService',

@@ -2268,6 +2268,7 @@ class FormatService:
    - 字段名必须与完整指令系统一致
    - 字段值必须在完整指令系统定义的允许范围内
    - 优先使用空行数字段（*_before_lines、*_after_lines）而不是磅数字段
+   - **必须包含 `application_rules.special_section_format_rules` 字段**，明确每个特殊章节（摘要、关键词、结论、参考文献、致谢、附录、目录）的编号规则（`should_have_numbering`），如果文档中没有明确说明，默认设置为 `false`（不应有编号）
 
 3. **重要格式要求（必须严格遵守）**：
    - **目录标题文本**：如果文档中明确提到"目录"或"目 录"，必须使用 `"目　　录"`（两个全角空格，Unicode: \u3000\u3000），不要使用 `"目 录"`（半角空格）或 `"目录"`（无空格）
@@ -3218,11 +3219,11 @@ class FormatService:
             logger.info(f"[格式化开始] 论文ID: {thesis_id}, 章节数量: {len(chapters)}")
             
             # 创建新文档
-            logger.info(f"[步骤1/6] 创建新Word文档")
+            logger.info(f"[步骤1/7] 创建新Word文档")
             doc = Document()
             
             # 应用页面设置
-            logger.info(f"[步骤2/6] 应用页面设置")
+            logger.info(f"[步骤2/7] 应用页面设置")
             if 'page' in format_config:
                 page_config = format_config['page']
                 if 'margins' in page_config:
@@ -3234,18 +3235,173 @@ class FormatService:
                     section.right_margin = Inches(float(margins.get('right', 90)) / 72)
                     logger.info(f"  页边距设置: 上={margins.get('top', 72)}磅, 下={margins.get('bottom', 72)}磅, 左={margins.get('left', 90)}磅, 右={margins.get('right', 90)}磅")
             
-            # 获取格式配置
-            logger.info(f"[步骤3/6] 解析格式配置")
-            font_config = format_config.get('font', {})
-            para_config = format_config.get('paragraph', {})
-            headings_config = format_config.get('headings', {})
+            # 插入固定页面（封面、原创性声明等）
+            logger.info(f"[步骤3/7] 处理固定页面")
+            special_pages = format_config.get('special_pages', {})
+            logger.info(f"[步骤3/7] format_config 中 special_pages 类型: {type(special_pages).__name__}")
+            logger.info(f"[步骤3/7] format_config 中 special_pages 值: {special_pages}")
             
-            # 设置默认字体
-            default_font_name = font_config.get('name', '宋体')
-            default_font_size = Pt(font_config.get('size', 12))
-            logger.info(f"  默认字体: {default_font_name}, 字号: {font_config.get('size', 12)}磅")
-            logger.info(f"  段落格式: 行距={para_config.get('line_spacing', 1.5)}, 首行缩进={para_config.get('first_line_indent', 24)}磅")
-            logger.info(f"  标题格式: h1={headings_config.get('h1', {}).get('font_size', 'N/A')}磅, h2={headings_config.get('h2', {}).get('font_size', 'N/A')}磅, h3={headings_config.get('h3', {}).get('font_size', 'N/A')}磅")
+            if special_pages and isinstance(special_pages, dict) and len(special_pages) > 0:
+                page_types = list(special_pages.keys())
+                logger.info(f"[步骤3/7] 检测到固定页面: {page_types} (共 {len(page_types)} 个)")
+                
+                # 按顺序插入固定页面
+                # 顺序：封面 -> 原创性声明 -> 评审表 -> 答辩记录表
+                page_order = ['cover_page', 'declaration_page', 'review_table', 'defense_record']
+                inserted_count = 0
+                skipped_count = 0
+                failed_count = 0
+                
+                for page_type in page_order:
+                    if page_type in special_pages:
+                        page_info = special_pages[page_type]
+                        logger.info(f"[步骤3/7] 处理固定页面: {page_type}")
+                        logger.info(f"[步骤3/7]  页面信息: {page_info}")
+                        
+                        if not isinstance(page_info, dict):
+                            logger.warning(f"[步骤3/7] ✗ 固定页面 {page_type} 的信息格式错误（不是字典），跳过")
+                            skipped_count += 1
+                            continue
+                        
+                        file_path = page_info.get('file_path')
+                        
+                        if file_path:
+                            try:
+                                logger.info(f"[步骤3/7]  插入固定页面: {page_type} ({page_info.get('description', 'N/A')})")
+                                logger.info(f"[步骤3/7]  文件路径: {file_path}")
+                                cls._insert_page_from_template(doc, file_path)
+                                inserted_count += 1
+                                logger.info(f"[步骤3/7]  ✓ 固定页面已插入: {page_type}")
+                            except Exception as e:
+                                failed_count += 1
+                                logger.warning(f"[步骤3/7]  ✗ 插入固定页面失败 ({page_type}): {str(e)}", exc_info=True)
+                                # 继续处理其他页面，不中断流程
+                        else:
+                            skipped_count += 1
+                            logger.warning(f"[步骤3/7]  固定页面 {page_type} 的文件路径为空，跳过")
+                    else:
+                        logger.debug(f"[步骤3/7]  固定页面 {page_type} 不在 special_pages 中，跳过")
+                
+                logger.info(f"[步骤3/7] ✓ 固定页面处理完成: 成功 {inserted_count} 个, 跳过 {skipped_count} 个, 失败 {failed_count} 个")
+            else:
+                logger.info(f"[步骤3/7] ⚠ 未检测到固定页面（format_data 中没有 special_pages 字段或为空）")
+            
+            # 获取格式配置
+            logger.info(f"[步骤4/7] 解析格式配置")
+            font_config = format_config.get('font', {})
+            
+            # 优先从format_rules读取配置（新格式），如果没有则从旧格式读取
+            headings_config = {}
+            if 'format_rules' in format_config:
+                format_rules = format_config['format_rules']
+                # 优先从format_rules.headings读取标题配置
+                if 'headings' in format_rules:
+                    headings_config = format_rules['headings']
+                    logger.info(f"  从format_rules.headings读取标题配置")
+                # 如果没有，尝试从旧格式读取
+                elif 'headings' in format_config:
+                    headings_config = format_config.get('headings', {})
+                    logger.info(f"  从旧格式headings读取标题配置")
+            else:
+                # 旧格式：直接从format_config读取
+                headings_config = format_config.get('headings', {})
+                logger.info(f"  从旧格式headings读取标题配置")
+            
+            # 设置默认字体（优先从format_rules.default_font读取，如果没有则从font读取）
+            default_font_name = '宋体'
+            default_font_size_pt = 12
+            
+            # 优先从format_rules.default_font读取（新格式）
+            if 'format_rules' in format_config:
+                format_rules = format_config['format_rules']
+                if 'default_font' in format_rules:
+                    default_font_config = format_rules['default_font']
+                    default_font_name = default_font_config.get('name', font_config.get('name', '宋体'))
+                    default_font_size_pt = default_font_config.get('size_pt', font_config.get('size', 12))
+                    logger.info(f"  从format_rules.default_font读取默认字体: {default_font_name}, {default_font_size_pt}磅")
+                elif font_config:
+                    default_font_name = font_config.get('name', '宋体')
+                    default_font_size_pt = font_config.get('size', 12)
+                    logger.info(f"  从font配置读取默认字体: {default_font_name}, {default_font_size_pt}磅")
+            elif font_config:
+                default_font_name = font_config.get('name', '宋体')
+                default_font_size_pt = font_config.get('size', 12)
+                logger.info(f"  从font配置读取默认字体: {default_font_name}, {default_font_size_pt}磅")
+            else:
+                logger.warning(f"  未找到字体配置，使用默认值: {default_font_name}, {default_font_size_pt}磅")
+            
+            # 优先从format_rules.paragraph读取段落配置（新格式）
+            para_config = {}
+            if 'format_rules' in format_config:
+                format_rules = format_config['format_rules']
+                if 'paragraph' in format_rules:
+                    para_config = format_rules['paragraph']
+                    logger.info(f"  从format_rules.paragraph读取段落配置")
+                elif 'paragraph' in format_config:
+                    # 如果format_rules中没有，尝试从旧格式读取
+                    para_config = format_config.get('paragraph', {})
+                    logger.info(f"  从旧格式paragraph读取段落配置")
+            elif 'paragraph' in format_config:
+                # 旧格式：直接从format_config读取
+                para_config = format_config.get('paragraph', {})
+                logger.info(f"  从旧格式paragraph读取段落配置")
+            
+            # 记录标题配置信息
+            if headings_config:
+                h1_info = headings_config.get('h1', {})
+                h2_info = headings_config.get('h2', {})
+                h3_info = headings_config.get('h3', {})
+                logger.info(f"  标题配置: h1={h1_info.get('font_name', 'N/A')} {h1_info.get('font_size_pt', h1_info.get('font_size', 'N/A'))}磅, h2={h2_info.get('font_name', 'N/A')} {h2_info.get('font_size_pt', h2_info.get('font_size', 'N/A'))}磅, h3={h3_info.get('font_name', 'N/A')} {h3_info.get('font_size_pt', h3_info.get('font_size', 'N/A'))}磅")
+            else:
+                logger.warning(f"  ⚠ 未找到标题配置（headings_config为空），标题格式可能使用默认值")
+            
+            # 优先从format_rules.special_sections读取特殊章节配置（新格式）
+            special_sections_config = {}
+            if 'format_rules' in format_config:
+                format_rules = format_config['format_rules']
+                if 'special_sections' in format_rules:
+                    special_sections_config = format_rules['special_sections']
+                    logger.info(f"  从format_rules.special_sections读取特殊章节配置")
+                elif 'special_sections' in format_config:
+                    # 如果format_rules中没有，尝试从旧格式读取
+                    special_sections_config = format_config.get('special_sections', {})
+                    logger.info(f"  从旧格式special_sections读取特殊章节配置")
+            elif 'special_sections' in format_config:
+                # 旧格式：直接从format_config读取
+                special_sections_config = format_config.get('special_sections', {})
+                logger.info(f"  从旧格式special_sections读取特殊章节配置")
+            
+            # 记录段落配置信息
+            if para_config:
+                logger.info(f"  段落配置: 行距={para_config.get('line_spacing', 1.5)}, 首行缩进={para_config.get('first_line_indent_chars', para_config.get('first_line_indent', 2))}字符, 对齐={para_config.get('alignment', 'justify')}")
+            else:
+                logger.warning(f"  ⚠ 未找到段落配置（para_config为空），段落格式可能使用默认值")
+            
+            # 记录特殊章节配置信息
+            if special_sections_config:
+                for section_type in ['conclusion', 'table_of_contents', 'references', 'acknowledgement']:
+                    if section_type in special_sections_config:
+                        section_config = special_sections_config[section_type]
+                        title_font = section_config.get('title_font', 'N/A')
+                        title_size = section_config.get('title_size_pt', section_config.get('title_size', 'N/A'))
+                        logger.info(f"  特殊章节配置 {section_type}: 标题字体={title_font}, 标题字号={title_size}磅")
+            else:
+                logger.warning(f"  ⚠ 未找到特殊章节配置（special_sections_config为空），特殊章节格式可能使用默认值")
+            
+            default_font_size = Pt(default_font_size_pt)
+            
+            # 设置文档级别的默认字体（通过Normal样式）
+            try:
+                from docx.oxml.ns import qn
+                normal_style = doc.styles['Normal']
+                normal_style.font.name = default_font_name
+                normal_style.font.size = default_font_size
+                normal_style._element.rPr.rFonts.set(qn('w:eastAsia'), default_font_name)  # 设置中文字体
+                logger.info(f"  ✓ 已设置文档默认字体（Normal样式）: {default_font_name}, {default_font_size_pt}磅")
+            except Exception as e:
+                logger.warning(f"  设置文档默认字体失败: {str(e)}，将继续为每个段落单独设置字体")
+            
+            logger.info(f"  默认字体: {default_font_name}, 字号: {default_font_size_pt}磅")
             
             # 获取布局规则
             if layout_rules is None:
@@ -3260,7 +3416,7 @@ class FormatService:
             
             # 添加论文标题（如果有）
             if thesis and thesis.title:
-                logger.info(f"[步骤4/6] 添加论文标题: {thesis.title}")
+                logger.info(f"[步骤5/7] 添加论文标题: {thesis.title}")
                 title_para = doc.add_paragraph()
                 title_run = title_para.add_run(thesis.title)
                 title_run.font.name = default_font_name
@@ -3288,7 +3444,7 @@ class FormatService:
             
             # 如果需要生成目录且没有目录章节，则自动生成
             if should_generate_toc and not has_toc_chapter:
-                logger.info(f"[步骤5/6] 检测到需要自动生成目录")
+                logger.info(f"[步骤6/7] 检测到需要自动生成目录")
                 try:
                     toc_chapter = cls._generate_table_of_contents(chapters, format_config, layout_rules)
                     if toc_chapter and hasattr(toc_chapter, 'toc_entries') and len(toc_chapter.toc_entries) > 0:
@@ -3300,7 +3456,46 @@ class FormatService:
             
             # 按章节顺序排序（确保与大纲顺序一致）
             chapters = sorted(chapters, key=lambda x: getattr(x, 'order_num', 0) if hasattr(x, 'order_num') else 0)
-            logger.info(f"[步骤5/6] 开始处理章节内容，共 {len(chapters)} 个章节")
+            logger.info(f"[步骤7/7] 开始处理章节内容，共 {len(chapters)} 个章节")
+            
+            # 获取章节编号格式配置
+            application_rules = format_config.get('application_rules', {})
+            chapter_numbering_format = application_rules.get('chapter_numbering_format', {})
+            level_1_format = chapter_numbering_format.get('level_1', {})
+            numbering_pattern = level_1_format.get('pattern', '{number} {title}')
+            number_style = level_1_format.get('number_style', 'arabic')
+            
+            # 获取特殊章节格式规则（用于判断哪些章节应该有编号）
+            special_section_format_rules = application_rules.get('special_section_format_rules', {})
+            
+            # 如果缺失，提供默认值（所有特殊章节默认不应有编号）
+            if not special_section_format_rules:
+                logger.warning("    警告: format_data 中缺少 'special_section_format_rules'，使用默认值（所有特殊章节不应有编号）")
+                special_section_format_rules = {
+                    'abstract': {'should_have_numbering': False},
+                    'keywords': {'should_have_numbering': False},
+                    'conclusion': {'should_have_numbering': False},
+                    'references': {'should_have_numbering': False},
+                    'acknowledgement': {'should_have_numbering': False},
+                    'appendix': {'should_have_numbering': False},
+                    'table_of_contents': {'should_have_numbering': False}
+                }
+            
+            # 获取文档结构顺序（用于区分前置部分、正文部分、后置部分）
+            document_structure = application_rules.get('document_structure', {})
+            section_order = document_structure.get('section_order', [])
+            required_sections = document_structure.get('required_sections', [])
+            optional_sections = document_structure.get('optional_sections', [])
+            
+            # 前置部分（Front Matter）：封面、目录、摘要、关键词等
+            front_matter_sections = ['封面', '诚信声明', '目录', '中文题目', '摘要', '关键词']
+            # 后置部分（Back Matter）：参考文献、致谢、附录等
+            back_matter_sections = ['参考文献', '致谢', '附录']
+            
+            # 统计正文章节的编号（只对正文部分编号）
+            body_chapter_index = 0
+            # 标记是否已经进入正文部分
+            in_body_section = False
             
             # 遍历章节，添加内容
             for idx, chapter in enumerate(chapters):
@@ -3308,10 +3503,78 @@ class FormatService:
                     logger.warning(f"  章节 {idx+1}: {chapter.title} - 内容为空，跳过")
                     continue
                 
-                logger.info(f"  处理章节 {idx+1}/{len(chapters)}: {chapter.title} (级别: {getattr(chapter, 'level', 1)})")
+                # 首先根据章节标题的编号格式确定章节级别（如果level未设置）
+                if not hasattr(chapter, 'level') or chapter.level is None:
+                    # 从标题编号中提取级别
+                    # 格式：1 → level 1, 1.1 → level 2, 1.1.1 → level 3
+                    import re
+                    title = chapter.title if chapter.title else ''
+                    
+                    # 匹配编号格式
+                    if re.match(r'^\d+\.\d+\.\d+', title):  # 1.1.1 格式 → level 3
+                        chapter.level = 3
+                        logger.info(f"  根据编号格式确定章节级别: {title} → level 3")
+                    elif re.match(r'^\d+\.\d+', title):  # 1.1 格式 → level 2
+                        chapter.level = 2
+                        logger.info(f"  根据编号格式确定章节级别: {title} → level 2")
+                    elif re.match(r'^\d+', title):  # 1 格式 → level 1
+                        chapter.level = 1
+                        logger.info(f"  根据编号格式确定章节级别: {title} → level 1")
+                    else:
+                        # 默认级别为1
+                        chapter.level = 1
+                        logger.debug(f"  使用默认级别: {title} → level 1")
                 
-                # 章节之间的间距处理（除了第一个章节）
-                if idx > 0:
+                logger.info(f"  处理章节 {idx+1}/{len(chapters)}: {chapter.title} (级别: {chapter.level})")
+                
+                # 识别章节类型
+                chapter_title_lower = chapter.title.lower() if chapter.title else ''
+                is_special_chapter = False
+                special_chapter_type = None
+                is_front_matter = False
+                is_back_matter = False
+                
+                # 检查是否是特殊章节（目录、摘要、关键词、结论、参考文献、致谢）
+                if '目录' in chapter.title or 'table of contents' in chapter_title_lower or 'toc' in chapter_title_lower:
+                    is_special_chapter = True
+                    special_chapter_type = 'table_of_contents'
+                    is_front_matter = True
+                elif '摘要' in chapter.title or 'abstract' in chapter_title_lower:
+                    is_special_chapter = True
+                    special_chapter_type = 'abstract'
+                    is_front_matter = True
+                elif '关键词' in chapter.title or 'keywords' in chapter_title_lower:
+                    is_special_chapter = True
+                    special_chapter_type = 'keywords'
+                    is_front_matter = True
+                elif '结论' in chapter.title or 'conclusion' in chapter_title_lower:
+                    is_special_chapter = True
+                    special_chapter_type = 'conclusion'
+                    # 结论是正文最后一章，不是前置或后置部分
+                elif '参考文献' in chapter.title or 'references' in chapter_title_lower:
+                    is_special_chapter = True
+                    special_chapter_type = 'references'
+                    is_back_matter = True
+                elif '致谢' in chapter.title or 'acknowledgement' in chapter_title_lower:
+                    is_special_chapter = True
+                    special_chapter_type = 'acknowledgement'
+                    is_back_matter = True
+                elif '附录' in chapter.title or 'appendix' in chapter_title_lower:
+                    is_special_chapter = True
+                    special_chapter_type = 'appendix'
+                    is_back_matter = True
+                elif any(fm in chapter.title for fm in ['封面', '诚信声明', '中文题目']):
+                    is_front_matter = True
+                else:
+                    # 普通正文章节
+                    in_body_section = True
+                
+                # 特殊章节需要另起页（除了第一个章节）
+                if is_special_chapter and idx > 0:
+                    doc.add_page_break()
+                    logger.info(f"    特殊章节 '{chapter.title}' 另起页")
+                # 普通章节之间的间距处理（除了第一个章节）
+                elif idx > 0:
                     between_chapters = chapter_spacing.get('between_chapters', 'page_break')
                     if between_chapters == 'page_break':
                         doc.add_page_break()
@@ -3328,45 +3591,237 @@ class FormatService:
                 if before_chapter > 0:
                     logger.debug(f"    章节前添加 {before_chapter} 个空行")
                 
+                # 处理章节标题
+                # 0. 先根据标题编号确定章节级别（在清理编号之前，因为需要从编号中提取级别）
+                import re
+                original_title = chapter.title if chapter.title else ''
+                
+                # 如果level未设置，从标题编号中提取级别
+                if not hasattr(chapter, 'level') or chapter.level is None:
+                    # 从标题编号中提取级别
+                    # 格式：1 → level 1, 1.1 → level 2, 1.1.1 → level 3
+                    if re.match(r'^\d+\.\d+\.\d+', original_title):  # 1.1.1 格式 → level 3
+                        chapter.level = 3
+                        logger.info(f"    根据编号格式确定章节级别: {original_title} → level 3")
+                    elif re.match(r'^\d+\.\d+', original_title):  # 1.1 格式 → level 2
+                        chapter.level = 2
+                        logger.info(f"    根据编号格式确定章节级别: {original_title} → level 2")
+                    elif re.match(r'^\d+', original_title):  # 1 格式 → level 1
+                        chapter.level = 1
+                        logger.info(f"    根据编号格式确定章节级别: {original_title} → level 1")
+                    else:
+                        # 默认级别为1
+                        chapter.level = 1
+                        logger.debug(f"    使用默认级别: {original_title} → level 1")
+                
+                # 1. 移除可能存在的编号前缀（在确定级别之后清理编号）
+                original_title_before_clean = chapter.title
+                
+                # 移除中文编号（如"第一章 XXX" -> "XXX"）
+                chapter.title = re.sub(r'^第[一二三四五六七八九十]+章\s*', '', chapter.title)
+                # 移除阿拉伯数字编号（如"1 XXX"、"1. XXX"、"1、XXX"、"1.1 XXX"、"1.1.1 XXX" -> "XXX"）
+                # 注意：需要匹配数字后跟空格、点号、顿号等，但也要匹配数字后直接跟中文字符的情况
+                chapter.title = re.sub(r'^\d+\.\d+\.\d+\s+', '', chapter.title)  # 1.1.1 格式
+                chapter.title = re.sub(r'^\d+\.\d+\s+', '', chapter.title)  # 1.1 格式
+                chapter.title = re.sub(r'^\d+[\.\s、]+\s*', '', chapter.title)  # 数字+分隔符+空格
+                chapter.title = re.sub(r'^\d+\s+', '', chapter.title)  # 数字+空格（单独处理，确保匹配"1 目录"这种情况）
+                chapter.title = chapter.title.strip()
+                
+                if chapter.title != original_title_before_clean:
+                    logger.info(f"    清理标题编号: {original_title_before_clean} -> {chapter.title}")
+                
+                # 1. 如果是特殊章节，确保标题格式正确
+                if is_special_chapter:
+                    if special_chapter_type == 'conclusion':
+                        # 结论标题必须是"结　　论"（两个全角空格）
+                        if chapter.title != '结　　论' and '结论' in chapter.title:
+                            chapter.title = '结　　论'
+                            logger.info(f"    修正结论标题格式: {chapter.title}")
+                    elif special_chapter_type == 'table_of_contents':
+                        # 目录标题必须是"目　　录"（两个全角空格）
+                        if chapter.title != '目　　录' and '目录' in chapter.title:
+                            chapter.title = '目　　录'
+                            logger.info(f"    修正目录标题格式: {chapter.title}")
+                
+                # 2. 判断章节是否应该有编号
+                should_have_numbering = False
+                
+                if is_front_matter or is_back_matter:
+                    # 前置部分和后置部分默认不应有编号
+                    should_have_numbering = False
+                    logger.info(f"    章节 '{chapter.title}' 属于{'前置' if is_front_matter else '后置'}部分，不应有编号")
+                elif is_special_chapter:
+                    # 特殊章节根据配置判断是否应该有编号
+                    special_rule = special_section_format_rules.get(special_chapter_type, {})
+                    should_have_numbering = special_rule.get('should_have_numbering', False)
+                    logger.info(f"    特殊章节 '{chapter.title}' ({special_chapter_type}) should_have_numbering: {should_have_numbering}")
+                else:
+                    # 普通正文章节应该有编号
+                    should_have_numbering = True
+                    logger.info(f"    普通正文章节 '{chapter.title}' 应该有编号")
+                
+                # 3. 如果需要编号，添加编号
+                if should_have_numbering:
+                    # 增加编号索引（无论是普通章节还是特殊章节，只要需要编号就增加）
+                    body_chapter_index += 1
+                    
+                    # 检查标题是否已经包含编号，如果包含则先移除
+                    import re
+                    original_title = chapter.title
+                    title_has_number = False
+                    
+                    if number_style == 'arabic':
+                        # 检查是否以数字开头（如"1 XXX"、"1. XXX"、"1、XXX"）
+                        if re.match(r'^\d+[\.\s、]', chapter.title):
+                            title_has_number = True
+                            # 移除数字编号
+                            chapter.title = re.sub(r'^\d+[\.\s、]+', '', chapter.title).strip()
+                    elif number_style == 'chinese':
+                        # 检查是否以"第X章"开头
+                        if re.match(r'^第[一二三四五六七八九十]+章', chapter.title):
+                            title_has_number = True
+                            # 移除中文编号
+                            chapter.title = re.sub(r'^第[一二三四五六七八九十]+章\s+', '', chapter.title).strip()
+                    
+                    if title_has_number:
+                        logger.info(f"    移除旧编号: {original_title} -> {chapter.title}")
+                    
+                    # 添加新编号（无论之前是否有编号，都需要添加正确的新编号）
+                    if number_style == 'arabic':
+                        # 阿拉伯数字格式：1 XXX
+                        formatted_number = str(body_chapter_index)
+                        chapter.title = f"{formatted_number} {chapter.title}"
+                    elif number_style == 'chinese':
+                        # 中文格式：第一章 XXX
+                        chinese_num = cls._number_to_chinese(body_chapter_index)
+                        chapter.title = f"第{chinese_num}章 {chapter.title}"
+                    else:
+                        # 默认使用阿拉伯数字
+                        chapter.title = f"{body_chapter_index} {chapter.title}"
+                    logger.info(f"    为章节添加编号: {chapter.title}")
+                else:
+                    # 不应该有编号，标题已经在前面清理过了，这里只需要确认
+                    # 再次检查确保没有编号（双重保险）
+                    import re
+                    original_title = chapter.title
+                    
+                    # 再次移除可能残留的编号（双重保险）
+                    chapter.title = re.sub(r'^第[一二三四五六七八九十]+章\s*', '', chapter.title)
+                    chapter.title = re.sub(r'^\d+[\.\s、]+\s*', '', chapter.title)
+                    chapter.title = re.sub(r'^\d+\s+', '', chapter.title)  # 单独处理"数字+空格"的情况
+                    chapter.title = chapter.title.strip()
+                    
+                    if chapter.title != original_title:
+                        logger.info(f"    二次清理编号: {original_title} -> {chapter.title}")
+                    else:
+                        logger.debug(f"    章节标题无需编号: {chapter.title}")
+                
                 # 添加章节标题
                 title_para = doc.add_paragraph()
                 title_run = title_para.add_run(chapter.title)
                 title_run.bold = True
                 
-                # 应用标题格式（根据章节级别对应格式指令）
-                # 章节级别（chapter.level）对应格式指令中的 headings.h{level}
-                # 例如：level=1 → headings.h1, level=2 → headings.h2, level=3 → headings.h3
-                chapter_level = chapter.level if hasattr(chapter, 'level') else 1
-                level_key = f'h{chapter_level}'
+                # 应用标题格式
+                # 优先从special_sections读取特殊章节的标题格式，否则从headings读取普通章节格式
+                font_size_pt = None
+                font_name = None
+                bold = True
+                title_alignment = 'left'
                 
-                if headings_config and level_key in headings_config:
-                    heading_style = headings_config[level_key]
-                    title_run.font.size = Pt(heading_style.get('font_size', 16))
-                    title_run.font.name = heading_style.get('font_name', default_font_name)
-                    title_run.font.bold = heading_style.get('bold', True)
-                    logger.info(f"    应用标题格式: {heading_style.get('font_name', default_font_name)} {heading_style.get('font_size', 16)}磅, 加粗={heading_style.get('bold', True)}")
-                else:
-                    # 如果没有对应级别的标题格式，使用默认值
-                    title_run.font.size = Pt(16)
-                    title_run.font.name = default_font_name
-                    title_run.font.bold = True
-                    logger.warning(f"    未找到级别 {chapter_level} 的标题格式，使用默认格式")
+                # 特殊章节的间距配置（用于后续应用）
+                special_title_spacing_before = None
+                special_title_spacing_after = None
                 
-                # 设置标题对齐（从格式指令中获取）
-                title_alignment = headings_config.get(level_key, {}).get('alignment', 'center') if headings_config else 'center'
+                if is_special_chapter and special_chapter_type and special_sections_config:
+                    # 特殊章节：从format_rules.special_sections.{type}读取
+                    section_config = special_sections_config.get(special_chapter_type, {})
+                    if section_config:
+                        # 读取标题字体和字号
+                        font_name = section_config.get('title_font')
+                        font_size_pt = section_config.get('title_size_pt') or section_config.get('title_size')
+                        bold = section_config.get('title_bold', True)
+                        title_alignment = section_config.get('title_alignment', 'center')
+                        # 读取标题间距
+                        special_title_spacing_before = section_config.get('title_spacing_before_pt')
+                        special_title_spacing_after = section_config.get('title_spacing_after_pt')
+                        logger.info(f"    从special_sections.{special_chapter_type}读取特殊章节标题格式: {font_name} {font_size_pt}磅, 对齐={title_alignment}, 前间距={special_title_spacing_before}磅, 后间距={special_title_spacing_after}磅")
+                
+                # 如果不是特殊章节或特殊章节配置不完整，从headings读取
+                if font_size_pt is None or not font_name:
+                    # 普通章节：从headings读取（根据章节级别）
+                    chapter_level = chapter.level if hasattr(chapter, 'level') else 1
+                    level_key = f'h{chapter_level}'
+                    
+                    if headings_config and level_key in headings_config:
+                        heading_style = headings_config[level_key]
+                        
+                        # 读取字体大小（支持 font_size_pt 和 font_size 两种字段名）
+                        font_size_pt = heading_style.get('font_size_pt') or heading_style.get('font_size')
+                        if font_size_pt is None:
+                            logger.error(f"    标题格式配置中缺少字体大小（font_size_pt 或 font_size），级别: {level_key}")
+                            raise ValueError(f"标题格式配置不完整：级别 {level_key} 缺少字体大小")
+                        
+                        # 读取字体名称（必须从配置中读取）
+                        font_name = heading_style.get('font_name')
+                        if not font_name:
+                            logger.error(f"    标题格式配置中缺少字体名称（font_name），级别: {level_key}")
+                            raise ValueError(f"标题格式配置不完整：级别 {level_key} 缺少字体名称")
+                        
+                        # 读取加粗状态（默认为True，但优先使用配置值）
+                        bold = heading_style.get('bold', True)
+                        title_alignment = heading_style.get('alignment', 'left')
+                        
+                        logger.info(f"    从headings.{level_key}读取普通章节标题格式: {font_name} {font_size_pt}磅, 对齐={title_alignment}")
+                    else:
+                        logger.error(f"    未找到级别 {chapter_level} 的标题格式配置（headings.{level_key}）")
+                        raise ValueError(f"标题格式配置缺失：未找到级别 {chapter_level} 的配置（headings.{level_key}）")
+                
+                # 应用标题格式（无论从special_sections还是headings读取）
+                if font_size_pt is None or not font_name:
+                    logger.error(f"    标题格式配置不完整：字体大小或字体名称为空")
+                    raise ValueError(f"标题格式配置不完整：字体大小或字体名称为空")
+                
+                title_run.font.size = Pt(font_size_pt)
+                title_run.font.name = font_name
+                title_run.font.bold = bold
+                
+                # 设置中文字体
+                try:
+                    from docx.oxml.ns import qn
+                    title_run._element.rPr.rFonts.set(qn('w:eastAsia'), font_name)
+                except:
+                    pass
+                
+                logger.info(f"    应用标题格式: {font_name} {font_size_pt}磅, 加粗={bold}, 对齐={title_alignment}")
+                
+                # 设置标题对齐（title_alignment已在上面从配置中读取）
                 if title_alignment == 'center':
                     title_para.alignment = WD_ALIGN_PARAGRAPH.CENTER
                 elif title_alignment == 'right':
                     title_para.alignment = WD_ALIGN_PARAGRAPH.RIGHT
                 else:
-                    title_para.alignment = WD_ALIGN_PARAGRAPH.CENTER  # 默认居中
+                    title_para.alignment = WD_ALIGN_PARAGRAPH.LEFT
                 
                 # 设置标题段间距（从格式指令中获取）
-                if headings_config and level_key in headings_config:
+                # 优先使用特殊章节的间距配置，否则使用headings的间距配置
+                if special_title_spacing_before is not None:
+                    title_para.paragraph_format.space_before = Pt(special_title_spacing_before)
+                    logger.info(f"    应用特殊章节标题前间距: {special_title_spacing_before}磅")
+                elif headings_config and level_key in headings_config:
                     heading_style = headings_config[level_key]
-                    if 'spacing_before' in heading_style:
+                    if 'spacing_before_pt' in heading_style:
+                        title_para.paragraph_format.space_before = Pt(heading_style['spacing_before_pt'])
+                    elif 'spacing_before' in heading_style:
                         title_para.paragraph_format.space_before = Pt(heading_style['spacing_before'])
-                    if 'spacing_after' in heading_style:
+                
+                if special_title_spacing_after is not None:
+                    title_para.paragraph_format.space_after = Pt(special_title_spacing_after)
+                    logger.info(f"    应用特殊章节标题后间距: {special_title_spacing_after}磅")
+                elif headings_config and level_key in headings_config:
+                    heading_style = headings_config[level_key]
+                    if 'spacing_after_pt' in heading_style:
+                        title_para.paragraph_format.space_after = Pt(heading_style['spacing_after_pt'])
+                    elif 'spacing_after' in heading_style:
                         title_para.paragraph_format.space_after = Pt(heading_style['spacing_after'])
                 
                 # 应用标题后的空行规则（从layout_rules中获取）
@@ -3380,16 +3835,12 @@ class FormatService:
                 # 获取特殊格式配置
                 special_formats = format_config.get('special_formats', {})
                 
-                # 识别章节类型（用于应用特殊格式和布局规则）
-                chapter_title_lower = chapter.title.lower() if chapter.title else ''
-                is_special_section = False
-                special_type = None
+                # 使用前面已经识别的章节类型（避免重复识别）
+                # is_special_section 和 special_type 已经在前面设置
                 
-                # 检查是否是特殊章节（目录、摘要、关键词、结论）
-                if '目录' in chapter.title or 'table of contents' in chapter_title_lower or 'toc' in chapter_title_lower:
-                    is_special_section = True
-                    special_type = 'table_of_contents'
-                    logger.info(f"    识别为特殊章节: 目录")
+                # 如果是目录章节，生成目录内容
+                if is_special_chapter and special_chapter_type == 'table_of_contents':
+                    logger.info(f"    处理目录章节")
                     
                     # 如果是自动生成的目录章节，生成目录内容
                     if hasattr(chapter, 'is_toc') and chapter.is_toc and hasattr(chapter, 'toc_entries'):
@@ -3415,18 +3866,10 @@ class FormatService:
                         # 将生成的目录内容赋值给章节内容
                         chapter.content = '\n'.join(toc_content_lines)
                         logger.info(f"    目录内容已生成，共 {len(toc_content_lines)} 行")
-                elif '摘要' in chapter.title or 'abstract' in chapter_title_lower:
-                    is_special_section = True
-                    special_type = 'abstract'
-                    logger.info(f"    识别为特殊章节: 摘要")
-                elif '关键词' in chapter.title or 'keywords' in chapter_title_lower:
-                    is_special_section = True
-                    special_type = 'keywords'
-                    logger.info(f"    识别为特殊章节: 关键词")
-                elif '结论' in chapter.title or 'conclusion' in chapter_title_lower:
-                    is_special_section = True
-                    special_type = 'conclusion'
-                    logger.info(f"    识别为特殊章节: 结论")
+                
+                # 设置 is_special_section 和 special_type 用于后续格式应用
+                is_special_section = is_special_chapter
+                special_type = special_chapter_type
                 
                 # 应用特殊章节前的布局规则（在标题之前）
                 if is_special_section and special_type in section_spacing:
@@ -3480,27 +3923,57 @@ class FormatService:
                         heading_para = doc.add_paragraph()
                         heading_run = heading_para.add_run(heading_text)
                         
-                        # 应用标题格式（使用h2配置）
+                        # 应用标题格式（使用h2配置，必须从配置中读取）
                         if headings_config and 'h2' in headings_config:
                             h2_style = headings_config['h2']
-                            heading_run.font.size = Pt(h2_style.get('font_size', 14))
-                            heading_run.font.name = h2_style.get('font_name', '黑体')
-                            heading_run.font.bold = h2_style.get('bold', True)
-                        else:
-                            heading_run.font.size = Pt(14)
-                            heading_run.font.name = '黑体'
-                            heading_run.font.bold = True
-                        
-                        heading_para.alignment = WD_ALIGN_PARAGRAPH.LEFT
-                        if headings_config and 'h2' in headings_config:
-                            h2_style = headings_config['h2']
-                            if 'spacing_before' in h2_style:
+                            
+                            # 读取字体大小（支持 font_size_pt 和 font_size 两种字段名）
+                            font_size_pt = h2_style.get('font_size_pt') or h2_style.get('font_size')
+                            if font_size_pt is None:
+                                logger.warning(f"      二级标题格式配置中缺少字体大小，使用默认值14磅")
+                                font_size_pt = 14
+                            
+                            # 读取字体名称（必须从配置中读取）
+                            font_name = h2_style.get('font_name')
+                            if not font_name:
+                                logger.warning(f"      二级标题格式配置中缺少字体名称，使用默认值'黑体'")
+                                font_name = '黑体'
+                            
+                            # 读取加粗状态
+                            bold = h2_style.get('bold', True)
+                            
+                            heading_run.font.size = Pt(font_size_pt)
+                            heading_run.font.name = font_name
+                            heading_run.font.bold = bold
+                            
+                            # 设置中文字体
+                            try:
+                                from docx.oxml.ns import qn
+                                heading_run._element.rPr.rFonts.set(qn('w:eastAsia'), font_name)
+                            except:
+                                pass
+                            
+                            # 设置段间距（支持 spacing_before_pt 和 spacing_before 两种字段名）
+                            if 'spacing_before_pt' in h2_style:
+                                heading_para.paragraph_format.space_before = Pt(h2_style['spacing_before_pt'])
+                            elif 'spacing_before' in h2_style:
                                 heading_para.paragraph_format.space_before = Pt(h2_style['spacing_before'])
-                            if 'spacing_after' in h2_style:
+                            if 'spacing_after_pt' in h2_style:
+                                heading_para.paragraph_format.space_after = Pt(h2_style['spacing_after_pt'])
+                            elif 'spacing_after' in h2_style:
                                 heading_para.paragraph_format.space_after = Pt(h2_style['spacing_after'])
+                            
+                            # 设置对齐方式
+                            alignment = h2_style.get('alignment', 'left')
+                            if alignment == 'center':
+                                heading_para.alignment = WD_ALIGN_PARAGRAPH.CENTER
+                            elif alignment == 'right':
+                                heading_para.alignment = WD_ALIGN_PARAGRAPH.RIGHT
+                            else:
+                                heading_para.alignment = WD_ALIGN_PARAGRAPH.LEFT
                         else:
-                            heading_para.paragraph_format.space_before = Pt(12)
-                            heading_para.paragraph_format.space_after = Pt(6)
+                            logger.error(f"      未找到二级标题格式配置（headings.h2）")
+                            raise ValueError("标题格式配置缺失：未找到二级标题配置（headings.h2）")
                         
                         # 应用二级标题后的空行规则（从layout_rules中获取）
                         h2_spacing_config = heading_spacing.get('h2', {})
@@ -3516,27 +3989,57 @@ class FormatService:
                         heading_para = doc.add_paragraph()
                         heading_run = heading_para.add_run(heading_text)
                         
-                        # 应用标题格式（使用h3配置）
+                        # 应用标题格式（使用h3配置，必须从配置中读取）
                         if headings_config and 'h3' in headings_config:
                             h3_style = headings_config['h3']
-                            heading_run.font.size = Pt(h3_style.get('font_size', 12))
-                            heading_run.font.name = h3_style.get('font_name', '黑体')
-                            heading_run.font.bold = h3_style.get('bold', True)
-                        else:
-                            heading_run.font.size = Pt(12)
-                            heading_run.font.name = '黑体'
-                            heading_run.font.bold = True
-                        
-                        heading_para.alignment = WD_ALIGN_PARAGRAPH.LEFT
-                        if headings_config and 'h3' in headings_config:
-                            h3_style = headings_config['h3']
-                            if 'spacing_before' in h3_style:
+                            
+                            # 读取字体大小（支持 font_size_pt 和 font_size 两种字段名）
+                            font_size_pt = h3_style.get('font_size_pt') or h3_style.get('font_size')
+                            if font_size_pt is None:
+                                logger.warning(f"      三级标题格式配置中缺少字体大小，使用默认值12磅")
+                                font_size_pt = 12
+                            
+                            # 读取字体名称（必须从配置中读取）
+                            font_name = h3_style.get('font_name')
+                            if not font_name:
+                                logger.warning(f"      三级标题格式配置中缺少字体名称，使用默认值'黑体'")
+                                font_name = '黑体'
+                            
+                            # 读取加粗状态
+                            bold = h3_style.get('bold', True)
+                            
+                            heading_run.font.size = Pt(font_size_pt)
+                            heading_run.font.name = font_name
+                            heading_run.font.bold = bold
+                            
+                            # 设置中文字体
+                            try:
+                                from docx.oxml.ns import qn
+                                heading_run._element.rPr.rFonts.set(qn('w:eastAsia'), font_name)
+                            except:
+                                pass
+                            
+                            # 设置段间距（支持 spacing_before_pt 和 spacing_before 两种字段名）
+                            if 'spacing_before_pt' in h3_style:
+                                heading_para.paragraph_format.space_before = Pt(h3_style['spacing_before_pt'])
+                            elif 'spacing_before' in h3_style:
                                 heading_para.paragraph_format.space_before = Pt(h3_style['spacing_before'])
-                            if 'spacing_after' in h3_style:
+                            if 'spacing_after_pt' in h3_style:
+                                heading_para.paragraph_format.space_after = Pt(h3_style['spacing_after_pt'])
+                            elif 'spacing_after' in h3_style:
                                 heading_para.paragraph_format.space_after = Pt(h3_style['spacing_after'])
+                            
+                            # 设置对齐方式
+                            alignment = h3_style.get('alignment', 'left')
+                            if alignment == 'center':
+                                heading_para.alignment = WD_ALIGN_PARAGRAPH.CENTER
+                            elif alignment == 'right':
+                                heading_para.alignment = WD_ALIGN_PARAGRAPH.RIGHT
+                            else:
+                                heading_para.alignment = WD_ALIGN_PARAGRAPH.LEFT
                         else:
-                            heading_para.paragraph_format.space_before = Pt(10)
-                            heading_para.paragraph_format.space_after = Pt(4)
+                            logger.error(f"      未找到三级标题格式配置（headings.h3）")
+                            raise ValueError("标题格式配置缺失：未找到三级标题配置（headings.h3）")
                         
                         # 应用三级标题后的空行规则（从layout_rules中获取）
                         h3_spacing_config = heading_spacing.get('h3', {})
@@ -3566,11 +4069,23 @@ class FormatService:
                             run.font.name = default_font_name
                             run.font.size = default_font_size
                             run.font.bold = True
+                            # 设置中文字体
+                            try:
+                                from docx.oxml.ns import qn
+                                run._element.rPr.rFonts.set(qn('w:eastAsia'), default_font_name)
+                            except:
+                                pass
                         elif part.strip():
                             # 普通文本
                             run = para.add_run(part)
                             run.font.name = default_font_name
                             run.font.size = default_font_size
+                            # 设置中文字体
+                            try:
+                                from docx.oxml.ns import qn
+                                run._element.rPr.rFonts.set(qn('w:eastAsia'), default_font_name)
+                            except:
+                                pass
                     
                     # 应用特殊格式（如果是特殊章节）
                     if is_special_section and special_type in special_formats:
@@ -3617,35 +4132,36 @@ class FormatService:
                                 
                                 if 'line_spacing' in special_format:
                                     para.paragraph_format.line_spacing = special_format['line_spacing']
+                            
+                            # 目录条目格式应用（支持多级目录格式）
+                            # 注意：这段代码需要在 if/elif 块外，确保无论走哪个分支都能执行
+                            if special_type == 'table_of_contents':
+                                # 检查是否有level_formats（多级目录格式）
+                                level_formats = special_format.get('level_formats', {})
                                 
-                                # 目录条目格式应用（支持多级目录格式）
-                                if special_type == 'table_of_contents':
-                                    # 检查是否有level_formats（多级目录格式）
-                                    level_formats = special_format.get('level_formats', {})
-                                    
-                                    # 判断当前行的目录级别（通过内容特征）
-                                    # 一级目录：如"一、绪论"、"1 绪论"、"一 、绪论"（注意空格）
-                                    # 二级目录：如"（一）"、"1.1"、"（一）"
-                                    # 三级目录：如"1.1.1"
-                                    import re
-                                    line_text = line.strip()
-                                    toc_level = 1  # 默认一级
-                                    
-                                    # 判断目录级别（更精确的匹配）
-                                    if re.match(r'^[一二三四五六七八九十]+[、．\s]', line_text) or re.match(r'^\d+[、．\s]', line_text):
-                                        # 一级目录（中文编号或数字编号开头，可能有空格）
-                                        toc_level = 1
-                                    elif re.match(r'^[（(][一二三四五六七八九十]+[）)]', line_text) or re.match(r'^\d+\.\d+', line_text):
-                                        # 二级目录（（一）或1.1格式）
-                                        toc_level = 2
-                                    elif re.match(r'^\d+\.\d+\.\d+', line_text):
-                                        # 三级目录（1.1.1格式）
-                                        toc_level = 3
-                                    
-                                    # 应用对应级别的目录格式（优先级：level_formats > entry_format）
-                                    level_key = f'level{toc_level}'
-                                    applied_format = None
-                                    
+                                # 判断当前行的目录级别（通过内容特征）
+                                # 一级目录：如"一、绪论"、"1 绪论"、"一 、绪论"（注意空格）
+                                # 二级目录：如"（一）"、"1.1"、"（一）"
+                                # 三级目录：如"1.1.1"
+                                import re
+                                line_text = line.strip()
+                                toc_level = 1  # 默认一级
+                                
+                                # 判断目录级别（更精确的匹配）
+                                if re.match(r'^[一二三四五六七八九十]+[、．\s]', line_text) or re.match(r'^\d+[、．\s]', line_text):
+                                    # 一级目录（中文编号或数字编号开头，可能有空格）
+                                    toc_level = 1
+                                elif re.match(r'^[（(][一二三四五六七八九十]+[）)]', line_text) or re.match(r'^\d+\.\d+', line_text):
+                                    # 二级目录（（一）或1.1格式）
+                                    toc_level = 2
+                                elif re.match(r'^\d+\.\d+\.\d+', line_text):
+                                    # 三级目录（1.1.1格式）
+                                    toc_level = 3
+                                
+                                # 应用对应级别的目录格式（优先级：level_formats > entry_format）
+                                level_key = f'level{toc_level}'
+                                applied_format = None
+                                
                                 if level_formats and level_key in level_formats:
                                     # 使用对应级别的格式
                                     applied_format = level_formats[level_key]
@@ -3654,40 +4170,40 @@ class FormatService:
                                     # 使用通用目录条目格式
                                     applied_format = special_format['entry_format']
                                     logger.debug(f"      第{line_num}行: 应用目录通用格式 - 字体={applied_format.get('font_name', 'N/A')}, 字号={applied_format.get('font_size', 'N/A')}磅")
+                                
+                                if applied_format:
+                                    # 应用字体格式
+                                    for run in para.runs:
+                                        if 'font_name' in applied_format:
+                                            run.font.name = applied_format['font_name']
+                                        if 'font_size' in applied_format:
+                                            run.font.size = Pt(applied_format['font_size'])
                                     
-                                    if applied_format:
-                                        # 应用字体格式
-                                        for run in para.runs:
-                                            if 'font_name' in applied_format:
-                                                run.font.name = applied_format['font_name']
-                                            if 'font_size' in applied_format:
-                                                run.font.size = Pt(applied_format['font_size'])
-                                        
-                                        # 应用缩进（level_formats中有indent字段）
-                                        if 'indent' in applied_format:
-                                            para.paragraph_format.left_indent = Pt(applied_format['indent'])
-                                        
-                                        # 应用行距
-                                        if 'line_spacing' in applied_format:
-                                            para.paragraph_format.line_spacing = applied_format['line_spacing']
-                                        
-                                        # 应用对齐方式
-                                        alignment = applied_format.get('alignment', 'justify')
-                                        if alignment == 'justify':
-                                            para.alignment = WD_ALIGN_PARAGRAPH.JUSTIFY
-                                        elif alignment == 'center':
-                                            para.alignment = WD_ALIGN_PARAGRAPH.CENTER
-                                        elif alignment == 'right':
-                                            para.alignment = WD_ALIGN_PARAGRAPH.RIGHT
-                                        else:
-                                            para.alignment = WD_ALIGN_PARAGRAPH.LEFT
-                                        
-                                        # 应用段间距
-                                        if 'spacing_before' in applied_format:
-                                            para.paragraph_format.space_before = Pt(applied_format['spacing_before'])
-                                        if 'spacing_after' in applied_format:
-                                            para.paragraph_format.space_after = Pt(applied_format['spacing_after'])
-                                is_first_line = False
+                                    # 应用缩进（level_formats中有indent字段）
+                                    if 'indent' in applied_format:
+                                        para.paragraph_format.left_indent = Pt(applied_format['indent'])
+                                    
+                                    # 应用行距
+                                    if 'line_spacing' in applied_format:
+                                        para.paragraph_format.line_spacing = applied_format['line_spacing']
+                                    
+                                    # 应用对齐方式
+                                    alignment = applied_format.get('alignment', 'justify')
+                                    if alignment == 'justify':
+                                        para.alignment = WD_ALIGN_PARAGRAPH.JUSTIFY
+                                    elif alignment == 'center':
+                                        para.alignment = WD_ALIGN_PARAGRAPH.CENTER
+                                    elif alignment == 'right':
+                                        para.alignment = WD_ALIGN_PARAGRAPH.RIGHT
+                                    else:
+                                        para.alignment = WD_ALIGN_PARAGRAPH.LEFT
+                                    
+                                    # 应用段间距
+                                    if 'spacing_before' in applied_format:
+                                        para.paragraph_format.space_before = Pt(applied_format['spacing_before'])
+                                    if 'spacing_after' in applied_format:
+                                        para.paragraph_format.space_after = Pt(applied_format['spacing_after'])
+                            is_first_line = False
                     else:
                         # 应用普通段落格式
                         alignment = para_config.get('alignment', 'left')
@@ -3699,6 +4215,18 @@ class FormatService:
                             para.alignment = WD_ALIGN_PARAGRAPH.JUSTIFY
                         else:
                             para.alignment = WD_ALIGN_PARAGRAPH.LEFT
+                        
+                        # 确保段落中的所有runs都应用了默认字体（防止出现默认字体）
+                        for run in para.runs:
+                            if not run.font.name or run.font.name in ['ＭＳ 明朝', 'MS Mincho', 'Calibri', 'Times New Roman']:
+                                run.font.name = default_font_name
+                                run.font.size = default_font_size
+                                # 设置中文字体
+                                try:
+                                    from docx.oxml.ns import qn
+                                    run._element.rPr.rFonts.set(qn('w:eastAsia'), default_font_name)
+                                except:
+                                    pass
                         
                         # 设置行距
                         if 'line_spacing' in para_config:
@@ -3717,12 +4245,38 @@ class FormatService:
                         if 'spacing_after' in para_config:
                             para.paragraph_format.space_after = Pt(para_config['spacing_after'])
                     
+                    # 设置段落对齐方式（从para_config读取）
+                    if 'alignment' in para_config:
+                        alignment = para_config['alignment']
+                        if alignment == 'justify':
+                            para.alignment = WD_ALIGN_PARAGRAPH.JUSTIFY
+                        elif alignment == 'center':
+                            para.alignment = WD_ALIGN_PARAGRAPH.CENTER
+                        elif alignment == 'right':
+                            para.alignment = WD_ALIGN_PARAGRAPH.RIGHT
+                        elif alignment == 'left':
+                            para.alignment = WD_ALIGN_PARAGRAPH.LEFT
+                        else:
+                            para.alignment = WD_ALIGN_PARAGRAPH.JUSTIFY  # 默认两端对齐
+                    
                     # 设置首行缩进
-                    # 检查是否是首段，以及是否需要首行缩进
+                    # 优先从first_line_indent_chars读取（字符数），如果没有则从first_line_indent读取（磅值）
                     is_first_para = (line == content_lines[0].strip() if content_lines else False)
                     first_para_indent = paragraph_spacing.get('first_paragraph_indent', True)
                     
-                    if 'first_line_indent' in para_config:
+                    if 'first_line_indent_chars' in para_config:
+                        # 字符数转换为磅值：1字符 ≈ 12磅（假设12磅字体）
+                        indent_chars = para_config['first_line_indent_chars']
+                        if isinstance(indent_chars, (int, float)):
+                            # 如果首段不需要缩进，且这是首段，则不缩进
+                            if is_first_para and not first_para_indent:
+                                para.paragraph_format.first_line_indent = Pt(0)
+                            else:
+                                # 字符数转换为磅值：1字符 ≈ 12磅（基于默认字体大小）
+                                indent_pt = indent_chars * default_font_size_pt
+                                para.paragraph_format.first_line_indent = Pt(indent_pt)
+                                logger.debug(f"      第{line_num}行: 应用首行缩进 {indent_chars}字符（{indent_pt}磅）")
+                    elif 'first_line_indent' in para_config:
                         # 如果首段不需要缩进，且这是首段，则不缩进
                         if is_first_para and not first_para_indent:
                             para.paragraph_format.first_line_indent = Pt(0)
@@ -4109,3 +4663,448 @@ class FormatService:
                 self.status = 'completed'
         
         return Chapter(chapter_info)
+    
+    @classmethod
+    async def extract_special_pages(
+        cls,
+        template_file_path: str,
+        template_id: int
+    ) -> Dict[str, Any]:
+        """
+        从格式模板文件中提取特殊页面（封面、原创性声明、评审表、答辩记录表等）
+        
+        :param template_file_path: 模板文件路径（实际文件系统路径）
+        :param template_id: 模板ID
+        :return: 特殊页面路径字典，格式：{"cover_page": {"file_path": "...", "description": "..."}, ...}
+        """
+        from pathlib import Path
+        import os
+        
+        if not DOCX_AVAILABLE:
+            logger.warning("python-docx 未安装，无法提取特殊页面")
+            return {}
+        
+        try:
+            logger.info(f"[提取特殊页面] 开始提取特殊页面 - 模板ID: {template_id}, 文件路径: {template_file_path}")
+            
+            # 检查文件是否存在
+            if not os.path.exists(template_file_path):
+                logger.error(f"[提取特殊页面] 模板文件不存在: {template_file_path}")
+                return {}
+            
+            # 打开模板文档
+            logger.info(f"[提取特殊页面] 正在打开模板文档...")
+            template_doc = Document(template_file_path)
+            total_paragraphs = len(template_doc.paragraphs)
+            logger.info(f"[提取特殊页面] 模板文档已打开，总段落数: {total_paragraphs}")
+            special_pages = {}
+            
+            # 创建输出目录（使用配置的上传路径）
+            from config.env import UploadConfig
+            import os
+            # 构建输出目录路径：UPLOAD_PATH/templates/special_pages
+            upload_path = UploadConfig.UPLOAD_PATH
+            output_dir = Path(upload_path) / 'templates' / 'special_pages'
+            output_dir.mkdir(parents=True, exist_ok=True)
+            logger.info(f"[提取特殊页面] 输出目录: {output_dir.absolute()}")
+            logger.info(f"[提取特殊页面] 上传路径配置: {upload_path}")
+            
+            # 提取封面页面（通常是第一页或前几页）
+            # 检查前20个段落是否包含封面关键词
+            first_pages_text = ' '.join([p.text for p in template_doc.paragraphs[:20]])
+            cover_keywords = ['封面', '题目', '论文题目', '学位论文', '姓名', '学号', '专业', '指导教师', '完成时间']
+            
+            if any(keyword in first_pages_text for keyword in cover_keywords):
+                logger.info("[提取特殊页面] 检测到封面页面，开始提取...")
+                logger.info(f"[提取特殊页面] 封面关键词匹配: {[kw for kw in cover_keywords if kw in first_pages_text]}")
+                try:
+                    cover_doc = Document()
+                    # 复制前30个段落（通常封面内容在前30个段落内）
+                    para_count = min(30, len(template_doc.paragraphs))
+                    logger.info(f"[提取特殊页面] 准备复制封面段落: 0 到 {para_count}")
+                    cls._copy_page_content(template_doc, cover_doc, start_para=0, end_para=para_count)
+                    logger.info(f"[提取特殊页面] 封面段落已复制，目标文档段落数: {len(cover_doc.paragraphs)}")
+                    
+                    # 保存封面页面
+                    cover_path = output_dir / f'cover_template_{template_id}.docx'
+                    cover_doc.save(str(cover_path))
+                    
+                    # 验证文件是否成功保存
+                    if os.path.exists(cover_path):
+                        file_size = os.path.getsize(cover_path)
+                        logger.info(f"[提取特殊页面] 封面文件已保存: {cover_path}, 文件大小: {file_size} 字节")
+                    else:
+                        logger.error(f"[提取特殊页面] ✗ 封面文件保存失败，文件不存在: {cover_path}")
+                        raise FileNotFoundError(f"封面文件保存失败: {cover_path}")
+                    
+                    # 转换为相对路径（用于存储到数据库）
+                    # 使用相对于 UPLOAD_PREFIX 的路径
+                    from config.env import UploadConfig
+                    # 计算相对于 UPLOAD_PATH 的相对路径
+                    upload_path_abs = os.path.abspath(UploadConfig.UPLOAD_PATH)
+                    cover_path_abs = os.path.abspath(cover_path)
+                    try:
+                        # 尝试计算相对路径
+                        relative_to_upload = os.path.relpath(cover_path_abs, upload_path_abs)
+                        # 转换为 URL 路径格式
+                        relative_path = f"/profile/upload/{relative_to_upload.replace(os.sep, '/')}"
+                        logger.info(f"[提取特殊页面] 路径转换: {cover_path_abs} -> {relative_path}")
+                    except ValueError as ve:
+                        # 如果无法计算相对路径（不同驱动器），使用绝对路径的简化版本
+                        logger.warning(f"[提取特殊页面] 无法计算相对路径（可能不同驱动器）: {str(ve)}")
+                        relative_path = f"/profile/upload/templates/special_pages/cover_template_{template_id}.docx"
+                        logger.info(f"[提取特殊页面] 使用默认相对路径: {relative_path}")
+                    
+                    special_pages['cover_page'] = {
+                        'file_path': relative_path,
+                        'description': '封面页面'
+                    }
+                    logger.info(f"[提取特殊页面] ✓ 封面页面已提取: {relative_path}")
+                except Exception as e:
+                    logger.error(f"[提取特殊页面] ✗ 提取封面页面失败: {str(e)}", exc_info=True)
+            
+            # 提取原创性声明页面
+            # 查找包含"原创性声明"、"使用授权"、"独创性声明"等关键词的段落
+            declaration_keywords = ['原创性声明', '使用授权', '独创性声明', '学位论文使用授权书']
+            declaration_found = False
+            
+            for i, para in enumerate(template_doc.paragraphs):
+                para_text = para.text.strip()
+                if any(keyword in para_text for keyword in declaration_keywords):
+                    matched_keywords = [kw for kw in declaration_keywords if kw in para_text]
+                    logger.info(f"[提取特殊页面] 检测到原创性声明页面（段落 {i}），匹配关键词: {matched_keywords}")
+                    try:
+                        declaration_doc = Document()
+                        # 从当前段落开始，复制后续30个段落（通常声明内容在30个段落内）
+                        para_count = min(i+30, len(template_doc.paragraphs))
+                        logger.info(f"[提取特殊页面] 准备复制声明段落: {i} 到 {para_count}")
+                        cls._copy_page_content(template_doc, declaration_doc, start_para=i, end_para=para_count)
+                        logger.info(f"[提取特殊页面] 声明段落已复制，目标文档段落数: {len(declaration_doc.paragraphs)}")
+                        
+                        # 保存声明页面
+                        declaration_path = output_dir / f'declaration_template_{template_id}.docx'
+                        declaration_doc.save(str(declaration_path))
+                        
+                        # 验证文件是否成功保存
+                        if os.path.exists(declaration_path):
+                            file_size = os.path.getsize(declaration_path)
+                            logger.info(f"[提取特殊页面] 声明文件已保存: {declaration_path}, 文件大小: {file_size} 字节")
+                        else:
+                            logger.error(f"[提取特殊页面] ✗ 声明文件保存失败，文件不存在: {declaration_path}")
+                            raise FileNotFoundError(f"声明文件保存失败: {declaration_path}")
+                        
+                        # 转换为相对路径
+                        from config.env import UploadConfig
+                        declaration_path_abs = os.path.abspath(declaration_path)
+                        upload_path_abs = os.path.abspath(UploadConfig.UPLOAD_PATH)
+                        try:
+                            relative_to_upload = os.path.relpath(declaration_path_abs, upload_path_abs)
+                            relative_path = f"/profile/upload/{relative_to_upload.replace(os.sep, '/')}"
+                            logger.info(f"[提取特殊页面] 路径转换: {declaration_path_abs} -> {relative_path}")
+                        except ValueError as ve:
+                            logger.warning(f"[提取特殊页面] 无法计算相对路径: {str(ve)}")
+                            relative_path = f"/profile/upload/templates/special_pages/declaration_template_{template_id}.docx"
+                            logger.info(f"[提取特殊页面] 使用默认相对路径: {relative_path}")
+                        
+                        special_pages['declaration_page'] = {
+                            'file_path': relative_path,
+                            'description': '原创性声明页面'
+                        }
+                        logger.info(f"[提取特殊页面] ✓ 原创性声明页面已提取: {relative_path}")
+                        declaration_found = True
+                        break
+                    except Exception as e:
+                        logger.error(f"[提取特殊页面] ✗ 提取原创性声明页面失败: {str(e)}", exc_info=True)
+                        break
+            
+            # 提取评审表（可选）
+            review_keywords = ['评审表', '评阅表', '论文评阅表']
+            for i, para in enumerate(template_doc.paragraphs):
+                para_text = para.text.strip()
+                if any(keyword in para_text for keyword in review_keywords):
+                    matched_keywords = [kw for kw in review_keywords if kw in para_text]
+                    logger.info(f"[提取特殊页面] 检测到评审表（段落 {i}），匹配关键词: {matched_keywords}")
+                    try:
+                        review_doc = Document()
+                        para_count = min(i+50, len(template_doc.paragraphs))
+                        logger.info(f"[提取特殊页面] 准备复制评审表段落: {i} 到 {para_count}")
+                        cls._copy_page_content(template_doc, review_doc, start_para=i, end_para=para_count)
+                        logger.info(f"[提取特殊页面] 评审表段落已复制，目标文档段落数: {len(review_doc.paragraphs)}")
+                        
+                        review_path = output_dir / f'review_table_template_{template_id}.docx'
+                        review_doc.save(str(review_path))
+                        
+                        # 验证文件是否成功保存
+                        if os.path.exists(review_path):
+                            file_size = os.path.getsize(review_path)
+                            logger.info(f"[提取特殊页面] 评审表文件已保存: {review_path}, 文件大小: {file_size} 字节")
+                        else:
+                            logger.error(f"[提取特殊页面] ✗ 评审表文件保存失败，文件不存在: {review_path}")
+                            raise FileNotFoundError(f"评审表文件保存失败: {review_path}")
+                        
+                        from config.env import UploadConfig
+                        review_path_abs = os.path.abspath(review_path)
+                        upload_path_abs = os.path.abspath(UploadConfig.UPLOAD_PATH)
+                        try:
+                            relative_to_upload = os.path.relpath(review_path_abs, upload_path_abs)
+                            relative_path = f"/profile/upload/{relative_to_upload.replace(os.sep, '/')}"
+                            logger.info(f"[提取特殊页面] 路径转换: {review_path_abs} -> {relative_path}")
+                        except ValueError as ve:
+                            logger.warning(f"[提取特殊页面] 无法计算相对路径: {str(ve)}")
+                            relative_path = f"/profile/upload/templates/special_pages/review_table_template_{template_id}.docx"
+                            logger.info(f"[提取特殊页面] 使用默认相对路径: {relative_path}")
+                        
+                        special_pages['review_table'] = {
+                            'file_path': relative_path,
+                            'description': '评审表'
+                        }
+                        logger.info(f"[提取特殊页面] ✓ 评审表已提取: {relative_path}")
+                        break
+                    except Exception as e:
+                        logger.error(f"[提取特殊页面] ✗ 提取评审表失败: {str(e)}", exc_info=True)
+                        break
+            
+            # 提取答辩记录表（可选）
+            defense_keywords = ['答辩记录表', '答辩记录', '答辩情况表']
+            for i, para in enumerate(template_doc.paragraphs):
+                para_text = para.text.strip()
+                if any(keyword in para_text for keyword in defense_keywords):
+                    matched_keywords = [kw for kw in defense_keywords if kw in para_text]
+                    logger.info(f"[提取特殊页面] 检测到答辩记录表（段落 {i}），匹配关键词: {matched_keywords}")
+                    try:
+                        defense_doc = Document()
+                        para_count = min(i+50, len(template_doc.paragraphs))
+                        logger.info(f"[提取特殊页面] 准备复制答辩记录表段落: {i} 到 {para_count}")
+                        cls._copy_page_content(template_doc, defense_doc, start_para=i, end_para=para_count)
+                        logger.info(f"[提取特殊页面] 答辩记录表段落已复制，目标文档段落数: {len(defense_doc.paragraphs)}")
+                        
+                        defense_path = output_dir / f'defense_record_template_{template_id}.docx'
+                        defense_doc.save(str(defense_path))
+                        
+                        # 验证文件是否成功保存
+                        if os.path.exists(defense_path):
+                            file_size = os.path.getsize(defense_path)
+                            logger.info(f"[提取特殊页面] 答辩记录表文件已保存: {defense_path}, 文件大小: {file_size} 字节")
+                        else:
+                            logger.error(f"[提取特殊页面] ✗ 答辩记录表文件保存失败，文件不存在: {defense_path}")
+                            raise FileNotFoundError(f"答辩记录表文件保存失败: {defense_path}")
+                        
+                        from config.env import UploadConfig
+                        defense_path_abs = os.path.abspath(defense_path)
+                        upload_path_abs = os.path.abspath(UploadConfig.UPLOAD_PATH)
+                        try:
+                            relative_to_upload = os.path.relpath(defense_path_abs, upload_path_abs)
+                            relative_path = f"/profile/upload/{relative_to_upload.replace(os.sep, '/')}"
+                            logger.info(f"[提取特殊页面] 路径转换: {defense_path_abs} -> {relative_path}")
+                        except ValueError as ve:
+                            logger.warning(f"[提取特殊页面] 无法计算相对路径: {str(ve)}")
+                            relative_path = f"/profile/upload/templates/special_pages/defense_record_template_{template_id}.docx"
+                            logger.info(f"[提取特殊页面] 使用默认相对路径: {relative_path}")
+                        
+                        special_pages['defense_record'] = {
+                            'file_path': relative_path,
+                            'description': '答辩记录表'
+                        }
+                        logger.info(f"[提取特殊页面] ✓ 答辩记录表已提取: {relative_path}")
+                        break
+                    except Exception as e:
+                        logger.error(f"[提取特殊页面] ✗ 提取答辩记录表失败: {str(e)}", exc_info=True)
+                        break
+            
+            logger.info(f"[提取特殊页面] ✓ 特殊页面提取完成，共提取 {len(special_pages)} 个页面")
+            if special_pages:
+                logger.info(f"[提取特殊页面] 提取的页面类型: {list(special_pages.keys())}")
+                for page_type, page_info in special_pages.items():
+                    logger.info(f"[提取特殊页面]   - {page_type}: {page_info.get('file_path', 'N/A')} ({page_info.get('description', 'N/A')})")
+            return special_pages
+            
+        except Exception as e:
+            logger.error(f"[提取特殊页面] ✗ 提取特殊页面失败: {str(e)}", exc_info=True)
+            return {}
+    
+    @classmethod
+    def _copy_page_content(
+        cls,
+        source_doc: Any,
+        target_doc: Any,
+        start_para: int = 0,
+        end_para: int = None
+    ) -> None:
+        """
+        从源文档复制指定范围的段落到目标文档（包括格式）
+        
+        :param source_doc: 源文档对象
+        :param target_doc: 目标文档对象
+        :param start_para: 起始段落索引
+        :param end_para: 结束段落索引（不包含），如果为None则复制到末尾
+        """
+        if end_para is None:
+            end_para = len(source_doc.paragraphs)
+        
+        para_range = min(end_para, len(source_doc.paragraphs))
+        copied_count = 0
+        
+        for i in range(start_para, para_range):
+            source_para = source_doc.paragraphs[i]
+            target_para = target_doc.add_paragraph()
+            
+            # 复制段落文本和格式
+            for run in source_para.runs:
+                target_run = target_para.add_run(run.text)
+                
+                # 复制字体格式
+                if run.font.name:
+                    target_run.font.name = run.font.name
+                if run.font.size:
+                    target_run.font.size = run.font.size
+                if run.font.bold is not None:
+                    target_run.font.bold = run.font.bold
+                if run.font.italic is not None:
+                    target_run.font.italic = run.font.italic
+                if run.font.underline is not None:
+                    target_run.font.underline = run.font.underline
+                if run.font.color and run.font.color.rgb:
+                    target_run.font.color.rgb = run.font.color.rgb
+            
+            # 复制段落格式
+            if source_para.alignment is not None:
+                target_para.alignment = source_para.alignment
+            
+            para_format = source_para.paragraph_format
+            target_para_format = target_para.paragraph_format
+            
+            if para_format.line_spacing is not None:
+                target_para_format.line_spacing = para_format.line_spacing
+            if para_format.space_before is not None:
+                target_para_format.space_before = para_format.space_before
+            if para_format.space_after is not None:
+                target_para_format.space_after = para_format.space_after
+            if para_format.first_line_indent is not None:
+                target_para_format.first_line_indent = para_format.first_line_indent
+            if para_format.left_indent is not None:
+                target_para_format.left_indent = para_format.left_indent
+            if para_format.right_indent is not None:
+                target_para_format.right_indent = para_format.right_indent
+            
+            copied_count += 1
+        
+        logger.debug(f"[复制页面内容] 已复制 {copied_count} 个段落（范围: {start_para} 到 {para_range}）")
+    
+    @classmethod
+    def _insert_page_from_template(
+        cls,
+        target_doc: Any,
+        source_file_path: str
+    ) -> None:
+        """
+        从模板文件中复制页面内容到目标文档
+        
+        :param target_doc: 目标文档对象
+        :param source_file_path: 源文件路径（可以是相对路径或绝对路径）
+        """
+        import os
+        from pathlib import Path
+        
+        if not DOCX_AVAILABLE:
+            logger.warning("python-docx 未安装，无法插入固定页面")
+            return
+        
+        try:
+            logger.info(f"[插入固定页面] 开始处理，原始路径: {source_file_path}")
+            
+            # 处理路径：如果是相对路径（以 /profile 开头），转换为实际文件系统路径
+            if source_file_path.startswith('/profile'):
+                from config.env import UploadConfig
+                logger.info(f"[插入固定页面] 检测到相对路径（/profile开头），开始转换...")
+                # 移除 /profile 前缀，转换为实际路径
+                relative_path = source_file_path.replace('/profile', '')
+                # 如果路径以 /upload 开头，移除它
+                if relative_path.startswith('/upload'):
+                    relative_path = relative_path.replace('/upload', '', 1)
+                # 构建实际路径
+                actual_path = os.path.join(UploadConfig.UPLOAD_PATH, relative_path.lstrip('/'))
+                logger.info(f"[插入固定页面] 路径转换: {source_file_path} -> {actual_path}")
+                logger.info(f"[插入固定页面] 上传路径配置: {UploadConfig.UPLOAD_PATH}")
+            else:
+                actual_path = source_file_path
+                logger.info(f"[插入固定页面] 使用绝对路径: {actual_path}")
+            
+            # 如果路径不存在，尝试使用 source_file_path（可能是绝对路径）
+            if not os.path.exists(actual_path):
+                logger.warning(f"[插入固定页面] 转换后的路径不存在: {actual_path}")
+                # 尝试直接使用 source_file_path（可能是绝对路径）
+                if os.path.exists(source_file_path):
+                    actual_path = source_file_path
+                    logger.info(f"[插入固定页面] 使用原始路径: {actual_path}")
+                else:
+                    logger.error(f"[插入固定页面] ✗ 文件不存在: {actual_path} (原始路径: {source_file_path})")
+                    return
+            else:
+                logger.info(f"[插入固定页面] ✓ 文件存在: {actual_path}")
+                file_size = os.path.getsize(actual_path)
+                logger.info(f"[插入固定页面] 文件大小: {file_size} 字节")
+            
+            logger.info(f"[插入固定页面] 开始插入页面: {actual_path}")
+            
+            # 打开源文档
+            logger.info(f"[插入固定页面] 正在打开源文档...")
+            source_doc = Document(actual_path)
+            source_para_count = len(source_doc.paragraphs)
+            logger.info(f"[插入固定页面] 源文档已打开，段落数: {source_para_count}")
+            
+            # 复制所有段落（包括格式）
+            copied_para_count = 0
+            for source_para in source_doc.paragraphs:
+                target_para = target_doc.add_paragraph()
+                
+                # 复制段落中的所有runs
+                for run in source_para.runs:
+                    target_run = target_para.add_run(run.text)
+                    
+                    # 复制字体格式
+                    if run.font.name:
+                        target_run.font.name = run.font.name
+                    if run.font.size:
+                        target_run.font.size = run.font.size
+                    if run.font.bold is not None:
+                        target_run.font.bold = run.font.bold
+                    if run.font.italic is not None:
+                        target_run.font.italic = run.font.italic
+                    if run.font.underline is not None:
+                        target_run.font.underline = run.font.underline
+                    if run.font.color and run.font.color.rgb:
+                        target_run.font.color.rgb = run.font.color.rgb
+                
+                # 复制段落格式
+                if source_para.alignment is not None:
+                    target_para.alignment = source_para.alignment
+                
+                para_format = source_para.paragraph_format
+                target_para_format = target_para.paragraph_format
+                
+                if para_format.line_spacing is not None:
+                    target_para_format.line_spacing = para_format.line_spacing
+                if para_format.space_before is not None:
+                    target_para_format.space_before = para_format.space_before
+                if para_format.space_after is not None:
+                    target_para_format.space_after = para_format.space_after
+                if para_format.first_line_indent is not None:
+                    target_para_format.first_line_indent = para_format.first_line_indent
+                if para_format.left_indent is not None:
+                    target_para_format.left_indent = para_format.left_indent
+                if para_format.right_indent is not None:
+                    target_para_format.right_indent = para_format.right_indent
+            
+                copied_para_count += 1
+            
+            logger.info(f"[插入固定页面] 已复制 {copied_para_count} 个段落")
+            
+            # 添加分页符（固定页面后需要分页）
+            target_doc.add_page_break()
+            logger.info(f"[插入固定页面] 已添加分页符")
+            
+            logger.info(f"[插入固定页面] ✓ 页面已插入: {actual_path} (共 {copied_para_count} 个段落)")
+            
+        except Exception as e:
+            logger.error(f"[插入固定页面] ✗ 插入页面失败: {str(e)}", exc_info=True)
+            # 不抛出异常，允许继续处理其他内容

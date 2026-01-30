@@ -72,6 +72,13 @@ export const thesisRoutes = {
         }
       ]
     },
+    // 大纲提示词模板
+    {
+      path: 'outline-prompt-template',
+      name: 'OutlinePromptTemplate',
+      component: () => import('@/views/thesis/outline-prompt-template/index'),
+      meta: { title: '大纲提示词模板', icon: 'documentation' }
+    },
     // 订单管理
     {
       path: 'order',
@@ -124,6 +131,9 @@ export const thesisComponentMap = {
   
   // 模板管理
   'thesis/template/list': () => import('@/views/thesis/template/list'),
+  
+  // 大纲提示词模板
+  'thesis/outline-prompt-template': () => import('@/views/thesis/outline-prompt-template/index'),
   
   // 订单管理
   'thesis/order/list': () => import('@/views/thesis/order/list'),

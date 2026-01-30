@@ -295,6 +295,9 @@ class AiGenerationService:
                         
                         # 特殊章节格式
                         special_chapters_list = []  # 记录无编号的特殊章节
+                        special_chapters_with_numbering = []  # 记录有编号的特殊章节（如结论）
+                        # 获取format_rules用于读取特殊章节的title_text（可能包含方括号格式）
+                        format_rules_for_titles = format_instructions.get('format_rules', {})
                         if special_sections:
                             format_requirements_parts.append("\n**特殊章节格式**：")
                             for section_type, section_config in special_sections.items():
@@ -310,11 +313,21 @@ class AiGenerationService:
                                         'acknowledgement': '致谢'
                                     }
                                     section_name = section_name_map.get(section_type, section_type)
-                                    format_requirements_parts.append(f"- {section_name}：{title}{numbering_text}")
+                                    
+                                    # 检查format_rules中是否有title_text或label_text（可能包含方括号）
+                                    title_text = title
+                                    if format_rules_for_titles and 'special_sections' in format_rules_for_titles:
+                                        special_sections_config = format_rules_for_titles.get('special_sections', {})
+                                        if section_type in special_sections_config:
+                                            title_text = special_sections_config[section_type].get('title_text') or special_sections_config[section_type].get('label_text') or title
+                                    
+                                    format_requirements_parts.append(f"- {section_name}：{title_text}{numbering_text}")
                                     
                                     # 记录无编号的特殊章节
                                     if not has_numbering:
                                         special_chapters_list.append(title)
+                                    else:
+                                        special_chapters_with_numbering.append(title)
                         
                         # 如果有无编号的特殊章节，明确说明
                         if special_chapters_list:
@@ -323,9 +336,13 @@ class AiGenerationService:
                         if format_requirements_parts:
                             # 如果有section_order，明确要求按照顺序生成
                             order_instruction = ""
+                            # 初始化变量，避免未定义错误
+                            conclusion_in_numbered = False
+                            conclusion_number = None
+                            numbered_sections = []
+                            
                             if document_structure and section_order:
                                 # 区分有编号和无编号的章节
-                                numbered_sections = []
                                 for section in section_order:
                                     # 检查是否为特殊章节（无编号）
                                     is_special = any(special_title in section for special_title in special_chapters_list) if special_chapters_list else False
@@ -333,8 +350,110 @@ class AiGenerationService:
                                         numbered_sections.append(section)
                                 
                                 if numbered_sections:
+                                    # 识别前置部分、后置部分
+                                    # 注意：目录应该在摘要和关键词之后，这样才能收录这些章节的页码
+                                    front_matter_keywords = ['封面', '诚信声明', '原创性声明', '评审表', '答辩记录表', '中文题目', '英文题目', '摘要', '关键词']
+                                    # 目录单独处理，应该在摘要和关键词之后
+                                    back_matter_keywords = ['参考文献', '致谢', '附录']
+                                    # 结论根据should_have_numbering判断是否属于正文章节
+                                    
+                                    front_matter_sections = [s for s in section_order if any(kw in s for kw in front_matter_keywords)]
+                                    # 目录应该在摘要和关键词之后
+                                    if '目录' in section_order:
+                                        # 找到目录在section_order中的位置
+                                        toc_index = section_order.index('目录')
+                                        # 检查是否在摘要和关键词之后
+                                        abstract_index = section_order.index('摘要') if '摘要' in section_order else -1
+                                        keywords_index = section_order.index('关键词') if '关键词' in section_order else -1
+                                        if toc_index > abstract_index and toc_index > keywords_index:
+                                            front_matter_sections.append('目录')
+                                    
+                                    back_matter_sections = [s for s in section_order if any(kw in s for kw in back_matter_keywords)]
+                                    
+                                    # 结论的处理：如果should_have_numbering为true，则属于正文章节
+                                    if '结论' in section_order and '结论' in special_chapters_with_numbering:
+                                        # 结论应该有编号，属于正文章节
+                                        if '结论' not in numbered_sections:
+                                            numbered_sections.append('结论')
+                                        conclusion_in_numbered = True
+                                    
                                     order_instruction = f"\n\n**章节顺序要求**（必须严格遵守）：\n请严格按照以下顺序生成章节：\n" + "\n".join([f"{idx + 1}. {section}" for idx, section in enumerate(section_order)])
-                                    order_instruction += f"\n\n**章节编号规则**：\n- 只有以下章节应该有章节编号（chapter_number从1开始连续递增）：{', '.join(numbered_sections)}\n- 特殊章节（摘要、关键词、结论、参考文献等）**不应该有章节编号**（chapter_number设置为null或不设置）\n- 章节在chapters数组中的顺序必须与上述顺序完全一致"
+                                    
+                                    # 计算结论应该的编号
+                                    if conclusion_in_numbered:
+                                        conclusion_number = len([s for s in numbered_sections if s != '结论']) + 1
+                                    
+                                    order_instruction += "\n\n**章节编号规则表**（必须严格遵守，这是唯一标准）：\n"
+                                    order_instruction += "| 章节类型 | 章节标题 | chapter_number | 说明 |\n"
+                                    order_instruction += "|----------|----------|----------------|------|\n"
+                                    order_instruction += "| 前置部分 | 封面 | `null` | 无编号 |\n"
+                                    order_instruction += "| | 诚信声明 | `null` | 无编号 |\n"
+                                    order_instruction += "| | 中文题目 | `null` | 无编号 |\n"
+                                    order_instruction += "| | [摘要] | `null` | 无编号，注意方括号 |\n"
+                                    order_instruction += "| | [关键词] | `null` | 无编号，注意方括号 |\n"
+                                    order_instruction += "| | 目　　录 | `null` | ✅ 两个全角空格 + 无编号（重要：目录绝对不能有编号！） |\n"
+                                    order_instruction += "| 正文部分 | 引言 | `1` | ✅ 从1开始 |\n"
+                                    if numbered_sections:
+                                        for idx, section in enumerate(numbered_sections, 1):
+                                            if section != '结论':
+                                                order_instruction += f"| | {section} | `{idx}` | |\n"
+                                    if conclusion_in_numbered and conclusion_number:
+                                        order_instruction += f"| | 结　　论 | `{conclusion_number}` | ✅ 两个全角空格 + 编号{conclusion_number}（不能为null） |\n"
+                                    order_instruction += "| 后置部分 | 参 考 文 献 | `null` | ✅ 字间空格 + 无编号 |\n"
+                                    order_instruction += "| | 致　　谢 | `null` | ✅ 两个全角空格 + 无编号 |\n"
+                                    order_instruction += "| | 附录 | `null` | 无编号 |\n"
+                                    
+                                    order_instruction += "\n**完整JSON示例**（必须严格按照此格式生成）：\n"
+                                    order_instruction += "```json\n"
+                                    order_instruction += '"chapters": [\n'
+                                    order_instruction += '  {"chapter_title": "封面", "chapter_number": null},\n'
+                                    order_instruction += '  {"chapter_title": "诚信声明", "chapter_number": null},\n'
+                                    order_instruction += '  {"chapter_title": "中文题目", "chapter_number": null},\n'
+                                    order_instruction += '  {"chapter_title": "[摘要]", "chapter_number": null},\n'
+                                    order_instruction += '  {"chapter_title": "[关键词]", "chapter_number": null},\n'
+                                    order_instruction += '  {"chapter_title": "目　　录", "chapter_number": null},  // 注意：两个全角空格，编号必须是null\n'
+                                    order_instruction += '  {"chapter_title": "引言", "chapter_number": 1},  // 第一个正文章节，从1开始\n'
+                                    if numbered_sections:
+                                        for idx, section in enumerate(numbered_sections, 2):
+                                            if section != '结论':
+                                                order_instruction += f'  {{"chapter_title": "{section}", "chapter_number": {idx}}},\n'
+                                    if conclusion_in_numbered and conclusion_number:
+                                        order_instruction += f'  {{\n'
+                                        order_instruction += f'    "chapter_title": "结　　论",  // 注意：两个全角空格\n'
+                                        order_instruction += f'    "chapter_number": {conclusion_number},  // 必须是{conclusion_number}，不能为null\n'
+                                        order_instruction += f'    "sections": [\n'
+                                        section_num_1 = str(conclusion_number) + ".1"
+                                        section_num_2 = str(conclusion_number) + ".2"
+                                        order_instruction += f'      {{"section_number": "{section_num_1}", "section_title": "...", "content_outline": "..."}},\n'
+                                        order_instruction += f'      {{"section_number": "{section_num_2}", "section_title": "...", "content_outline": "..."}}\n'
+                                        order_instruction += f'    ]\n'
+                                        order_instruction += f'  }},\n'
+                                    order_instruction += '  {"chapter_title": "参 考 文 献", "chapter_number": null},  // 注意：字间空格，编号必须是null\n'
+                                    order_instruction += '  {"chapter_title": "致　　谢", "chapter_number": null},  // 注意：两个全角空格，编号必须是null\n'
+                                    order_instruction += '  {"chapter_title": "附录", "chapter_number": null}\n'
+                                    order_instruction += ']\n'
+                                    order_instruction += "```\n"
+                                    
+                                    order_instruction += "\n**⚠️ 绝对禁止的错误示例**（这些是错误的，绝对不能这样生成）：\n"
+                                    order_instruction += "❌ 错误：{\"chapter_title\": \"封面\", \"chapter_number\": 1}  // 封面不能有编号！\n"
+                                    order_instruction += "❌ 错误：{\"chapter_title\": \"目录\", \"chapter_number\": 1}  // 目录不能有编号！\n"
+                                    order_instruction += "❌ 错误：{\"chapter_title\": \"引言\", \"chapter_number\": 5}  // 引言必须是1！\n"
+                                    if conclusion_in_numbered and conclusion_number:
+                                        order_instruction += f"❌ 错误：{{\"chapter_title\": \"结论\", \"chapter_number\": null}}  // 结论必须是{conclusion_number}！\n"
+                                    order_instruction += "❌ 错误：{\"chapter_title\": \"参考文献\", \"chapter_number\": 8}  // 参考文献不能有编号！\n"
+                                    
+                                    order_instruction += "\n**✅ 关键规则**（必须严格遵守，这是硬性要求）：\n"
+                                    order_instruction += "【规则1】前置部分（封面、诚信声明、中文题目、摘要、关键词、目录）的chapter_number必须是null，绝对不能是1、2、3、4等任何数字！\n"
+                                    order_instruction += "【规则2】正文章节（引言、文献综述、研究方法、研究结果、讨论）的chapter_number必须从1开始连续递增：引言=1, 文献综述=2, 研究方法=3, 研究结果=4, 讨论=5\n"
+                                    if conclusion_in_numbered and conclusion_number:
+                                        order_instruction += f"【规则3】结论的chapter_number必须是{conclusion_number}（前面有{conclusion_number - 1}个正文章节），绝对不能为null！\n"
+                                    order_instruction += "【规则4】后置部分（参考文献、致谢、附录）的chapter_number必须是null，绝对不能是8、9、10等任何数字！\n"
+                                    order_instruction += "【规则5】特殊章节标题格式（必须精确匹配）：\n"
+                                    order_instruction += "   - 目录：必须是\"目　　录\"（两个全角空格，不是\"目录\"）\n"
+                                    order_instruction += "   - 结论：必须是\"结　　论\"（两个全角空格，不是\"结论\"）\n"
+                                    order_instruction += "   - 参考文献：必须是\"参 考 文 献\"（两个半角空格，不是\"参考文献\"）\n"
+                                    order_instruction += "   - 致谢：必须是\"致　　谢\"（两个全角空格，不是\"致谢\"）\n"
+                                    order_instruction += "【规则6】摘要和关键词：chapter_title必须是\"[摘要]\"和\"[关键词]\"（包含方括号，不是\"摘要\"或\"关键词\"）\n"
                             
                             # 章节编号格式要求
                             numbering_format_instruction = ""
@@ -345,24 +464,46 @@ class AiGenerationService:
                                 number_style = level_1.get('number_style', 'chinese')
                                 
                                 if examples:
-                                    numbering_format_instruction = f"\n\n**章节标题格式要求**（必须严格遵守）：\n- 章节标题必须包含完整的编号格式，例如：{', '.join(examples[:3])}\n- **重要**：不要只写标题文本（如：\"引言\"），必须包含编号部分（如：\"第一章 引言\"）\n- 编号格式：{pattern}\n- 数字样式：{number_style}\n- 示例：\n"
+                                    numbering_format_instruction = f"\n\n**章节标题格式要求**（必须严格遵守）：\n- **重要**：`chapter_title`字段只包含标题文本，不要包含编号！\n- 例如：标题应该是\"引言\"、\"文献综述\"，而不是\"第一章 引言\"或\"1 引言\"\n- 编号由`chapter_number`字段表示，系统会在格式化时自动添加编号\n- 编号格式：{pattern}\n- 数字样式：{number_style}\n- 示例（注意：chapter_title只写标题文本，不包含编号）：\n"
                                     # 添加更多示例
                                     for i in range(1, min(6, len(examples) + 1)):
                                         if number_style == 'chinese':
                                             chinese_nums = ['一', '二', '三', '四', '五', '六']
                                             if i <= len(chinese_nums):
-                                                numbering_format_instruction += f"  - 第{chinese_nums[i-1]}章 标题{i}\n"
+                                                numbering_format_instruction += f"  - chapter_number: {i}, chapter_title: \"标题{i}\"（注意：标题不包含\"第X章\"）\n"
                                         else:
-                                            numbering_format_instruction += f"  - {pattern.replace('{number}', str(i)).replace('{title}', f'标题{i}')}\n"
+                                            numbering_format_instruction += f"  - chapter_number: {i}, chapter_title: \"标题{i}\"（注意：标题不包含编号）\n"
                             
-                            format_requirements = "\n\n" + "\n".join(format_requirements_parts) + order_instruction + numbering_format_instruction + "\n\n**重要**：请严格按照以上格式要求生成大纲，确保：\n1. 一级标题使用指定的格式（如：第一章 引言、第二章 文献综述）\n2. 二级标题使用指定的格式（如：1.1、1.2）\n3. 特殊章节（摘要、关键词、结论、参考文献）**chapter_number必须设置为null或不设置**\n4. 普通章节的chapter_number必须从1开始连续递增\n5. 章节顺序必须严格按照上述章节顺序要求\n6. 章节在chapters数组中的顺序必须与章节顺序要求一致"
+                            # 构建最终检查清单
+                            checklist = "\n\n**🔍 生成前自检清单**（生成大纲前必须逐项确认，生成后必须逐项验证）：\n"
+                            checklist += "【前置检查】在生成JSON之前，请确认：\n"
+                            checklist += "  □ 封面、诚信声明、中文题目、摘要、关键词、目录的chapter_number都设置为null\n"
+                            checklist += "  □ 引言是第一个正文章节，chapter_number设置为1（不是5！）\n"
+                            checklist += "  □ 正文章节（文献综述、研究方法等）的chapter_number从2开始连续递增\n"
+                            if conclusion_in_numbered and conclusion_number:
+                                checklist += f"  □ 结论的chapter_number设置为{conclusion_number}（不是null！）\n"
+                            checklist += "  □ 参考文献、致谢、附录的chapter_number都设置为null（不是8、9、10！）\n"
+                            checklist += "  □ 目录标题是\"目　　录\"（两个全角空格）\n"
+                            checklist += "  □ 结论标题是\"结　　论\"（两个全角空格）\n"
+                            checklist += "  □ 参考文献标题是\"参 考 文 献\"（两个半角空格）\n"
+                            checklist += "  □ 致谢标题是\"致　　谢\"（两个全角空格）\n"
+                            checklist += "  □ 摘要标题是\"[摘要]\"（包含方括号）\n"
+                            checklist += "  □ 关键词标题是\"[关键词]\"（包含方括号）\n"
+                            checklist += "\n【生成后验证】生成JSON后，请再次确认：\n"
+                            checklist += "  □ 所有前置部分的chapter_number都是null（不是1、2、3、4！）\n"
+                            checklist += "  □ 引言的chapter_number是1（不是5！）\n"
+                            if conclusion_in_numbered and conclusion_number:
+                                checklist += f"  □ 结论的chapter_number是{conclusion_number}（不是null！）\n"
+                            checklist += "  □ 所有后置部分的chapter_number都是null（不是8、9、10！）\n"
+                            
+                            format_requirements = "\n\n" + "\n".join(format_requirements_parts) + order_instruction + numbering_format_instruction + checklist
                             
                             logger.info(f"已读取格式指令，template_id: {template_id}")
                 except Exception as e:
                     logger.warning(f"读取格式指令失败: {str(e)}，将使用默认格式")
             
-            # 构建提示词
-            prompt = cls._build_outline_prompt(thesis_info, format_requirements)
+            # 构建提示词（从 DB 读取模板并渲染，无则回退硬编码）
+            prompt = await cls._build_outline_prompt(query_db, thesis_info, format_requirements)
             logger.debug(f"提示词长度: {len(prompt)}")
             
             # 调用AI生成
@@ -431,22 +572,188 @@ class AiGenerationService:
             raise ServiceException(message=f'生成论文大纲失败: {str(e)}')
 
     @classmethod
-    def _build_outline_prompt(cls, thesis_info: Dict[str, Any], format_requirements: str = "") -> str:
-        """构建大纲生成提示词
-        
-        :param thesis_info: 论文信息
-        :param format_requirements: 格式要求（从格式指令中提取）
-        """
+    def _render_outline_prompt_template(
+        cls, template_content: str, thesis_info: Dict[str, Any], format_requirements: str
+    ) -> str:
+        """渲染大纲提示词模板：用 thesis_info 与 format_requirements 替换占位符。"""
+        if not template_content:
+            return ""
+        title = thesis_info.get('title', '') or ''
+        degree_level = thesis_info.get('degree_level', '') or ''
+        major = thesis_info.get('major', '') or ''
+        research_direction = thesis_info.get('research_direction', '') or ''
+        keywords_raw = thesis_info.get('keywords')
+        if keywords_raw is None:
+            keywords = ''
+        elif isinstance(keywords_raw, list):
+            keywords = ', '.join(str(k) for k in keywords_raw)
+        else:
+            keywords = str(keywords_raw) if keywords_raw else ''
+        word_count = thesis_info.get('total_words') or thesis_info.get('word_count')
+        word_count_str = str(word_count) if word_count is not None else '0'
+        replacements = {
+            '{{title}}': title,
+            '{{degree_level}}': degree_level,
+            '{{major}}': major,
+            '{{research_direction}}': research_direction,
+            '{{keywords}}': keywords,
+            '{{word_count}}': word_count_str,
+            '{{format_requirements}}': format_requirements or '',
+        }
+        out = template_content
+        for k, v in replacements.items():
+            out = out.replace(k, v)
+        return out
+
+    @classmethod
+    async def _build_outline_prompt(
+        cls, query_db: AsyncSession, thesis_info: Dict[str, Any], format_requirements: str = ""
+    ) -> str:
+        """构建大纲生成提示词：优先从 DB 按格式模板取提示词并渲染，无则回退硬编码。"""
+        try:
+            from module_thesis.dao.outline_prompt_template_dao import OutlinePromptTemplateDao
+            format_template_id = thesis_info.get('template_id')
+            row = await OutlinePromptTemplateDao.get_by_format_template_id(query_db, format_template_id)
+            if row and getattr(row, 'template_content', None):
+                return cls._render_outline_prompt_template(
+                    row.template_content, thesis_info, format_requirements
+                )
+        except Exception as e:
+            logger.warning(f"读取大纲提示词模板失败: {e}，将使用默认硬编码提示词")
+        return cls._get_fallback_outline_prompt(thesis_info, format_requirements)
+
+    @classmethod
+    def _get_fallback_outline_prompt(cls, thesis_info: Dict[str, Any], format_requirements: str = "") -> str:
+        """回退：使用硬编码的大纲提示词（当 DB 无模板或读取失败时）。"""
         title = thesis_info.get('title', '')
         major = thesis_info.get('major', '')
         research_direction = thesis_info.get('research_direction', '')
         keywords = thesis_info.get('keywords', '')
+        degree_text = thesis_info.get('degree_level', '') or '本科'
+
+        # 构建核心规则表格（放在最前面，最显眼的位置）
+        core_rules_table = """## 🚨 章节编号规则（必须严格遵守）
+
+### 🔴 结论编号计算公式（生成前必须执行！）
+
+**步骤1**：数正文章节数量（不包括封面、诚信声明、摘要、关键词、目录等前置部分）
+- 例如：引言、文献综述、研究方法、研究结果、讨论 = 5个正文章节
+
+**步骤2**：计算结论编号
+- **结论编号 = 正文章节数量 + 1**
+- 例如：5个正文章节 → 结论编号 = 5 + 1 = 6
+
+**步骤3**：设置结论的 `chapter_number`
+- **必须等于计算出的编号，绝对不能是 `null`！**
+- 例如：结论编号 = 6 → `"chapter_number": 6`（不能是 `null`！）
+
+**⚠️ 关键规则：**
+- **结论的编号与是否有 `sections` 无关！即使 `sections` 是空数组 `[]`，结论的 `chapter_number` 也必须等于（正文章节数量 + 1）！**
+- **如果 `sections` 中有 `section_number: "6.1"`，则 `chapter_number` 必须是 `6`，不能是 `null`！**
+
+| 章节类型 | 章节标题 | chapter_number | 说明 |
+|----------|----------|----------------|------|
+| **前置部分** | 封面、诚信声明、中文题目、[摘要]、[关键词]、目　　录 | `null` | 全部无编号 |
+| **正文部分** | 引言 | `1` | 从1开始 |
+| | 文献综述、研究方法、研究结果、讨论 | `2, 3, 4, 5` | 连续递增 |
+| | 结　　论 | `6` | ⚠️ 如果前面有5个正文章节，必须是6，不能为null！无论sections是否为空！ |
+| **后置部分** | 参 考 文 献、致　　谢、附录 | `null` | 全部无编号 |
+
+**特殊标题格式（必须精确匹配）：**
+- 目录：`"目　　录"`（两个全角空格）
+- 结论：`"结　　论"`（两个全角空格）
+- 参考文献：`"参 考 文 献"`（两个半角空格）
+- 致谢：`"致　　谢"`（两个全角空格）
+- 摘要：`"[摘要]"`（包含方括号）
+- 关键词：`"[关键词]"`（包含方括号）
+
+"""
         
-        # 学历从模板获取，如果模板中没有则使用默认值
-        # 注意：大纲生成时可能还没有选择模板，所以这里使用默认值
-        degree_text = '本科'  # 默认值，实际应该从模板获取，但大纲生成时可能还没有模板
+        # 构建完整的正确JSON示例
+        correct_json_example = """## ✅ 正确JSON示例
+
+```json
+{
+  "title": "论文标题",
+  "chapters": [
+    {"chapter_title": "封面", "chapter_number": null},
+    {"chapter_title": "诚信声明", "chapter_number": null},
+    {"chapter_title": "中文题目", "chapter_number": null},
+    {"chapter_title": "[摘要]", "chapter_number": null},
+    {"chapter_title": "[关键词]", "chapter_number": null},
+    {"chapter_title": "目　　录", "chapter_number": null},
+    {"chapter_title": "引言", "chapter_number": 1, "sections": [{"section_number": "1.1", "section_title": "...", "content_outline": "..."}]},
+    {"chapter_title": "文献综述", "chapter_number": 2, "sections": [{"section_number": "2.1", "section_title": "...", "content_outline": "..."}]},
+    {"chapter_title": "研究方法", "chapter_number": 3, "sections": [{"section_number": "3.1", "section_title": "...", "content_outline": "..."}]},
+    {"chapter_title": "研究结果", "chapter_number": 4, "sections": [{"section_number": "4.1", "section_title": "...", "content_outline": "..."}]},
+    {"chapter_title": "讨论", "chapter_number": 5, "sections": [{"section_number": "5.1", "section_title": "...", "content_outline": "..."}]},
+    {"chapter_title": "结　　论", "chapter_number": 6, "sections": [{"section_number": "6.1", "section_title": "...", "content_outline": "..."}]},  // ✅ 注意：结论必须是6，不能是null！即使sections为空，结论也必须是6！
+    {"chapter_title": "参 考 文 献", "chapter_number": null},
+    {"chapter_title": "致　　谢", "chapter_number": null},
+    {"chapter_title": "附录", "chapter_number": null}
+  ]
+}
+```
+
+"""
         
-        prompt = f"""请为以下论文生成详细的大纲：
+        # 构建绝对禁止的错误示例
+        forbidden_examples = """## 🚫 常见错误（绝对不能这样生成）
+
+❌ **错误1**：结论编号为null（⚠️ 这是最常见的错误！）
+```json
+{"chapter_title": "结　　论", "chapter_number": null, "sections": []}  // ❌ 错误！即使sections为空，如果前面有5个正文章节，结论也必须是6！
+{"chapter_title": "结　　论", "chapter_number": null, "sections": [{"section_number": "6.1", ...}]}  // ❌ 错误！如果section_number是"6.1"，则chapter_number必须是6！
+```
+
+✅ **正确**：
+```json
+{"chapter_title": "结　　论", "chapter_number": 6, "sections": []}  // ✅ 正确：即使sections为空，结论也必须是6！
+{"chapter_title": "结　　论", "chapter_number": 6, "sections": [{"section_number": "6.1", ...}]}  // ✅ 正确：chapter_number和section_number逻辑一致
+```
+
+❌ **错误2**：前置/后置部分有编号
+```json
+{"chapter_title": "封面", "chapter_number": 1}  // ❌ 错误！封面不能有编号
+{"chapter_title": "目录", "chapter_number": 1}  // ❌ 错误！目录不能有编号
+{"chapter_title": "参考文献", "chapter_number": 8}  // ❌ 错误！参考文献不能有编号
+```
+
+❌ **错误3**：引言编号不是1
+```json
+{"chapter_title": "引言", "chapter_number": 5}  // ❌ 错误！引言必须是1
+```
+
+❌ **错误4**：特殊标题格式错误
+```json
+{"chapter_title": "目录", ...}  // ❌ 错误！应该是"目　　录"（两个全角空格）
+{"chapter_title": "结论", ...}  // ❌ 错误！应该是"结　　论"（两个全角空格）
+{"chapter_title": "摘要", ...}  // ❌ 错误！应该是"[摘要]"（包含方括号）
+```
+
+"""
+        
+        # 构建生成前自检清单
+        pre_checklist = """## 🔍 生成前检查（必须逐项确认）
+
+### 【强制计算】
+1. [ ] 正文章节数量 = _____（例如：5）
+2. [ ] 结论编号 = 正文章节数量 + 1 = _____（例如：6）
+3. [ ] 结论的 `chapter_number` = _____（必须是计算出的编号，不能是null！）
+
+### 【关键检查】
+- [ ] 前置部分（封面、诚信声明、中文题目、[摘要]、[关键词]、目　　录）的 `chapter_number` 都是 `null`
+- [ ] 引言的 `chapter_number` 是 `1`
+- [ ] 正文章节的 `chapter_number` 从1开始连续递增（1, 2, 3, 4, 5）
+- [ ] **结　　论的 `chapter_number` 是 `6`（不是null！）** ⚠️ 这是最容易出错的地方！
+- [ ] 后置部分（参 考 文 献、致　　谢、附录）的 `chapter_number` 都是 `null`
+- [ ] 特殊标题格式正确：`"目　　录"`、`"结　　论"`、`"参 考 文 献"`、`"致　　谢"`、`"[摘要]"`、`"[关键词]"`
+
+"""
+        
+        prompt = f"""{core_rules_table}
+
+## 论文信息
 
 论文标题：{title}
 专业：{major}
@@ -454,52 +761,41 @@ class AiGenerationService:
 研究方向：{research_direction}
 关键词：{keywords}
 
-## 内容要求：
-1. 生成完整的论文大纲，包括摘要、引言、文献综述、研究方法、研究结果、讨论、结论、参考文献等章节
-2. 每个章节需要包含2-4个小节
-3. 大纲要符合{degree_text}论文的学术规范
-4. 大纲要紧扣论文主题和研究方向
-
 {format_requirements}
 
-## 格式要求（必须严格遵守）：
-**必须返回纯JSON格式，不要包含任何其他文字说明、markdown代码块标记或解释。**
+{correct_json_example}
 
-**JSON结构必须严格按照以下格式：**
-{{
-  "title": "论文标题（字符串）",
-  "chapters": [
-    {{
-      "chapter_number": 1,  // 整数，章节编号，从1开始递增
-      "chapter_title": "章节标题（字符串）",
-      "sections": [  // 数组，每个章节包含2-4个小节
-        {{
-          "section_number": "1.1",  // 字符串，小节编号格式：章节号.小节号
-          "section_title": "小节标题（字符串）",
-          "content_outline": "小节内容概要（字符串，简要描述该小节的主要内容）"
-        }}
-      ]
-    }}
-  ]
-}}
+{forbidden_examples}
 
-## 重要约束：
-1. **必须返回有效的JSON格式**，可以直接被 `json.loads()` 解析
-2. **不要使用markdown代码块**（不要包含 ```json 或 ```）
-3. **不要添加任何说明文字**，只返回JSON对象
-4. **字段类型必须正确**：
-   - `title`: 字符串
-   - `chapters`: 数组
-   - `chapter_number`: 整数
-   - `chapter_title`: 字符串
-   - `sections`: 数组
-   - `section_number`: 字符串（格式：章节号.小节号，如 "1.1", "2.3"）
-   - `section_title`: 字符串
-   - `content_outline`: 字符串
-5. **所有字符串字段必须使用双引号**，不要使用单引号
-6. **确保JSON格式完整**，所有括号和引号正确配对
+{pre_checklist}
 
-现在请生成大纲，只返回JSON格式的数据，不要包含任何其他内容。"""
+## 内容要求
+
+生成完整的论文大纲，包括摘要、引言、文献综述、研究方法、研究结果、讨论、结论、参考文献等章节。每个章节包含2-4个小节。大纲要符合{degree_text}论文的学术规范，紧扣论文主题和研究方向。
+
+## 输出格式要求
+
+**必须返回纯JSON格式**，不要包含markdown代码块标记或说明文字。字段类型：
+- `title`: 字符串
+- `chapters`: 数组
+- `chapter_number`: 整数或null（严格按照规则表设置）
+- `chapter_title`: 字符串（注意特殊标题格式）
+- `sections`: 数组（每个章节2-4个小节）
+- `section_number`: 字符串（格式：如果父章节有编号，使用"章节号.小节号"，如"6.1"）
+- `section_title`: 字符串
+- `content_outline`: 字符串
+
+## 最终确认
+
+**生成前必须确认：**
+1. ✅ 前置部分全部 `chapter_number = null`
+2. ✅ 引言 `chapter_number = 1`
+3. ✅ 正文章节从1开始连续递增
+4. ✅ **结论 `chapter_number = 正文章节数量 + 1`（不能是null！）** ⚠️ 最容易出错！
+5. ✅ 后置部分全部 `chapter_number = null`
+6. ✅ 特殊标题格式正确
+
+**现在请生成大纲，只返回JSON格式的数据，不要包含任何其他内容。**"""
         
         return prompt
 
@@ -598,10 +894,56 @@ class AiGenerationService:
         
         # 从格式指令中动态识别特殊章节（无编号的章节）
         special_chapter_titles = []
+        special_chapter_title_map = {}  # 映射：标准标题 -> 正确格式标题（如："目录" -> "目　　录"）
+        front_matter_titles = []  # 前置部分标题（如：封面、诚信声明、中文题目等）
+        back_matter_titles = []  # 后置部分标题（如：附录等）
+        
+        # 从document_structure.section_order中识别前置部分、正文章节、后置部分
+        if format_instructions:
+            try:
+                application_rules = format_instructions.get('application_rules', {})
+                document_structure = application_rules.get('document_structure', {})
+                section_order = document_structure.get('section_order', [])
+                
+                if section_order:
+                    # 定义前置部分、正文章节、后置部分的标识
+                    # 前置部分通常包括：封面、诚信声明、目录、中文题目、摘要、关键词等
+                    # 正文章节：正文
+                    # 后置部分：结论、参考文献、致谢、附录等
+                    front_matter_keywords = ['封面', '诚信声明', '原创性声明', '评审表', '答辩记录表', '目录', '中文题目', '英文题目', '摘要', '关键词']
+                    body_keywords = ['正文']
+                    back_matter_keywords = ['结论', '参考文献', '致谢', '附录']
+                    
+                    for section in section_order:
+                        # 检查是否为前置部分
+                        if any(keyword in section for keyword in front_matter_keywords):
+                            front_matter_titles.append(section)
+                        # 检查是否为后置部分
+                        elif any(keyword in section for keyword in back_matter_keywords):
+                            back_matter_titles.append(section)
+                        # 正文章节不需要特殊处理，它们应该有编号
+                    
+                    logger.info(f"前置部分标题：{front_matter_titles}")
+                    logger.info(f"后置部分标题：{back_matter_titles}")
+            except Exception as e:
+                logger.warning(f"从格式指令提取章节结构失败: {str(e)}")
+        
         if format_instructions:
             try:
                 application_rules = format_instructions.get('application_rules', {})
                 special_sections = application_rules.get('special_section_format_rules', {})
+                format_rules = format_instructions.get('format_rules', {})
+                special_sections_config = format_rules.get('special_sections', {})
+                
+                # 从format_rules.special_sections中读取特殊章节的正确标题格式
+                special_section_type_map = {
+                    'table_of_contents': ['目录', '目　录', '目　　录'],
+                    'conclusion': ['结论', '结 论', '结　　论'],
+                    'references': ['参考文献', '参 考 文 献'],
+                    'acknowledgement': ['致谢', '致 谢', '致　　谢'],
+                    'abstract': ['摘要'],
+                    'keywords': ['关键词']
+                }
                 
                 for section_type, section_config in special_sections.items():
                     title = section_config.get('title', '')
@@ -609,6 +951,17 @@ class AiGenerationService:
                     if title and not has_numbering:
                         special_chapter_titles.append(title)
                         logger.debug(f"从格式指令识别特殊章节（无编号）：{title}")
+                        
+                        # 从format_rules.special_sections中获取正确的标题格式
+                        if section_type in special_sections_config:
+                            section_config_detail = special_sections_config[section_type]
+                            # 尝试多个可能的字段名：title_text, title
+                            correct_title = section_config_detail.get('title_text') or section_config_detail.get('title', title)
+                            # 建立映射：标准标题 -> 正确格式标题
+                            for standard_title in special_section_type_map.get(section_type, [title]):
+                                special_chapter_title_map[standard_title] = correct_title
+                            special_chapter_title_map[title] = correct_title
+                            logger.debug(f"特殊章节标题格式映射：{title} -> {correct_title}")
             except Exception as e:
                 logger.warning(f"从格式指令提取特殊章节配置失败: {str(e)}，将使用默认配置")
         
@@ -618,6 +971,8 @@ class AiGenerationService:
             logger.debug("使用默认特殊章节列表（无格式指令或提取失败）")
         
         logger.info(f"特殊章节列表（无编号）：{special_chapter_titles}")
+        if special_chapter_title_map:
+            logger.info(f"特殊章节标题格式映射：{special_chapter_title_map}")
         
         # 验证和规范化每个章节
         validated_chapters = []
@@ -631,26 +986,101 @@ class AiGenerationService:
             
             chapter_title = chapter.get('chapter_title', '')
             
-            # 判断是否为特殊章节（无编号）- 使用从格式指令中提取的标题列表
+            # 清理标题中的编号前缀（如果AI错误地添加了编号）
+            import re
+            original_title = chapter_title
+            # 移除中文编号（如"第一章 XXX" -> "XXX"）
+            chapter_title = re.sub(r'^第[一二三四五六七八九十]+章\s*', '', chapter_title)
+            # 移除阿拉伯数字编号（如"1 XXX"、"1. XXX"、"1、XXX"、"1.1 XXX"、"1.1.1 XXX" -> "XXX"）
+            chapter_title = re.sub(r'^\d+\.\d+\.\d+\s+', '', chapter_title)  # 1.1.1 格式
+            chapter_title = re.sub(r'^\d+\.\d+\s+', '', chapter_title)  # 1.1 格式
+            chapter_title = re.sub(r'^\d+[\.\s、]+\s*', '', chapter_title)  # 数字+分隔符+空格
+            chapter_title = re.sub(r'^\d+\s+', '', chapter_title)  # 数字+空格（单独处理，确保匹配"1 目录"这种情况）
+            chapter_title = chapter_title.strip()
+            
+            if chapter_title != original_title:
+                logger.info(f"清理章节标题中的编号：\"{original_title}\" -> \"{chapter_title}\"")
+            
+            # 判断章节类型
+            # 1. 判断是否为特殊章节（无编号）- 使用从格式指令中提取的标题列表
             is_special = any(special_title in chapter_title or chapter_title == special_title for special_title in special_chapter_titles)
+            # 2. 判断是否为前置部分（无编号）- 使用硬编码的关键词列表确保识别准确
+            front_matter_keywords_hardcoded = ['封面', '诚信声明', '原创性声明', '评审表', '答辩记录表', '中文题目', '英文题目', '[摘要]', '摘要', '[关键词]', '关键词', '目　', '目录']
+            is_front_matter = any(fm_title in chapter_title or chapter_title == fm_title for fm_title in front_matter_titles) or \
+                             any(kw in chapter_title for kw in front_matter_keywords_hardcoded)
+            # 3. 判断是否为后置部分（无编号）- 使用硬编码的关键词列表确保识别准确
+            back_matter_keywords_hardcoded = ['参 考 文 献', '参考文献', '致　', '致谢', '附录']
+            is_back_matter = any(bm_title in chapter_title or chapter_title == bm_title for bm_title in back_matter_titles) or \
+                           any(kw in chapter_title for kw in back_matter_keywords_hardcoded)
+            
+            # 如果是特殊章节，应用正确的标题格式
+            if is_special and special_chapter_title_map:
+                # 查找匹配的标准标题，应用正确的格式
+                for standard_title, correct_title in special_chapter_title_map.items():
+                    if standard_title in chapter_title or chapter_title == standard_title:
+                        chapter_title = correct_title
+                        logger.info(f"应用特殊章节标题格式：\"{original_title}\" -> \"{chapter_title}\"")
+                        break
             
             validated_chapter = {
                 'chapter_title': chapter_title,
                 'sections': []
             }
             
-            if is_special:
-                # 特殊章节：不设置chapter_number或设置为null
-                validated_chapter['chapter_number'] = None
-                special_chapters.append(validated_chapter)
-                logger.debug(f"识别为特殊章节（无编号）：{chapter_title}")
-            else:
-                # 普通章节：确保有chapter_number
+            # 检查结论是否应该有编号（从格式指令中读取，或从section_number推断）
+            is_conclusion = '结论' in chapter_title or '结　' in chapter_title
+            conclusion_should_have_numbering = False
+            
+            # 方法1：从格式指令中读取
+            if is_conclusion and format_instructions:
+                try:
+                    application_rules = format_instructions.get('application_rules', {})
+                    special_section_format_rules = application_rules.get('special_section_format_rules', {})
+                    conclusion_config = special_section_format_rules.get('conclusion', {})
+                    conclusion_should_have_numbering = conclusion_config.get('should_have_numbering', False)
+                except Exception as e:
+                    logger.warning(f"读取结论编号配置失败: {str(e)}")
+            
+            # 方法2：如果格式指令中没有配置，从section_number推断
+            # 如果结论的sections中有"6.1"、"6.2"这样的格式，说明结论应该是第6章
+            if is_conclusion and not conclusion_should_have_numbering:
+                sections = chapter.get('sections', [])
+                if sections and isinstance(sections, list):
+                    for section in sections:
+                        if isinstance(section, dict):
+                            section_number = section.get('section_number', '')
+                            # 检查是否是"6.1"、"6.2"这样的格式
+                            if isinstance(section_number, str) and section_number.startswith('6.'):
+                                conclusion_should_have_numbering = True
+                                logger.info(f"从section_number推断：结论应该有编号（检测到{section_number}格式）")
+                                break
+            
+            # 前置部分、后置部分、特殊章节（除了结论如果有编号）都不应该有编号
+            # 如果AI错误地设置了编号，强制设置为null
+            if is_conclusion and conclusion_should_have_numbering:
+                # 结论应该有编号，作为正文章节处理
                 chapter_number = chapter.get('chapter_number')
                 if chapter_number is None or not isinstance(chapter_number, int):
-                    # 如果没有chapter_number或不是整数，先不设置，后续统一处理
+                    logger.warning(f"结论章节 '{chapter_title}' 应该有编号但缺少有效的chapter_number，将在后续统一处理")
                     chapter_number = None
-                    logger.debug(f"章节 {idx} 缺少有效的chapter_number，将在后续统一处理")
+                validated_chapter['chapter_number'] = chapter_number
+                numbered_chapters.append(validated_chapter)
+                logger.debug(f"识别为结论（有编号）：{chapter_title}, chapter_number={chapter_number}")
+            elif is_special or is_front_matter or is_back_matter:
+                # 不设置chapter_number或设置为null
+                validated_chapter['chapter_number'] = None
+                special_chapters.append(validated_chapter)
+                chapter_type = "特殊章节" if is_special else ("前置部分" if is_front_matter else "后置部分")
+                original_number = chapter.get('chapter_number')
+                if original_number is not None:
+                    logger.warning(f"{chapter_type} '{chapter_title}' 的chapter_number被错误设置为{original_number}，已强制设置为null")
+                logger.debug(f"识别为{chapter_type}（无编号）：{chapter_title}")
+            else:
+                # 普通正文章节：使用AI设置的chapter_number（应该从1开始连续递增）
+                chapter_number = chapter.get('chapter_number')
+                if chapter_number is None or not isinstance(chapter_number, int):
+                    logger.warning(f"正文章节 '{chapter_title}' 缺少有效的chapter_number，将在后续统一处理")
+                    chapter_number = None
                 
                 validated_chapter['chapter_number'] = chapter_number
                 numbered_chapters.append(validated_chapter)
@@ -675,43 +1105,27 @@ class AiGenerationService:
                 validated_chapter['sections'] = validated_sections
         
         # 重新规范化numbered_chapters的chapter_number，确保从1开始连续递增
-        # 同时检查并纠正章节标题格式
+        # 同时清理章节标题中的编号（如果AI错误地添加了编号）
         for idx, chapter in enumerate(numbered_chapters):
             chapter['chapter_number'] = idx + 1
             chapter_title = chapter.get('chapter_title', '')
             
-            # 如果格式指令中有章节编号格式要求，检查并纠正标题格式
-            if format_instructions:
-                try:
-                    application_rules = format_instructions.get('application_rules', {})
-                    chapter_numbering = application_rules.get('chapter_numbering_format', {})
-                    level_1 = chapter_numbering.get('level_1', {})
-                    
-                    if level_1:
-                        pattern = level_1.get('pattern', '第{number}章 {title}')
-                        number_style = level_1.get('number_style', 'chinese')
-                        
-                        # 检查标题是否包含编号格式
-                        expected_prefix = None
-                        if number_style == 'chinese':
-                            # 转换为中文数字（使用format_service中的方法）
-                            from module_thesis.service.format_service import FormatService
-                            chinese_num = FormatService._number_to_chinese(chapter['chapter_number'])
-                            expected_prefix = f"第{chinese_num}章"
-                        else:
-                            # 阿拉伯数字
-                            expected_prefix = f"第{chapter['chapter_number']}章"
-                        
-                        # 检查标题是否已经包含编号格式
-                        if expected_prefix and expected_prefix not in chapter_title:
-                            # 标题不包含编号格式，自动添加
-                            original_title = chapter_title.strip()
-                            # 移除可能存在的数字前缀（如"1. "、"1 "等）
-                            title_cleaned = original_title.replace(f"{chapter['chapter_number']}. ", "").replace(f"{chapter['chapter_number']} ", "").strip()
-                            chapter['chapter_title'] = f"{expected_prefix} {title_cleaned}"
-                            logger.info(f"自动纠正章节标题格式：\"{original_title}\" -> \"{chapter['chapter_title']}\"")
-                except Exception as e:
-                    logger.debug(f"检查章节标题格式时出错: {str(e)}")
+            # 清理标题中的编号前缀（如果AI错误地添加了编号）
+            import re
+            original_title = chapter_title
+            
+            # 移除中文编号（如"第一章 XXX" -> "XXX"）
+            chapter_title = re.sub(r'^第[一二三四五六七八九十]+章\s*', '', chapter_title)
+            # 移除阿拉伯数字编号（如"1 XXX"、"1. XXX"、"1、XXX"、"1.1 XXX"、"1.1.1 XXX" -> "XXX"）
+            chapter_title = re.sub(r'^\d+\.\d+\.\d+\s+', '', chapter_title)  # 1.1.1 格式
+            chapter_title = re.sub(r'^\d+\.\d+\s+', '', chapter_title)  # 1.1 格式
+            chapter_title = re.sub(r'^\d+[\.\s、]+\s*', '', chapter_title)  # 数字+分隔符+空格
+            chapter_title = re.sub(r'^\d+\s+', '', chapter_title)  # 数字+空格（单独处理，确保匹配"1 目录"这种情况）
+            chapter_title = chapter_title.strip()
+            
+            if chapter_title != original_title:
+                logger.info(f"清理章节标题中的编号：\"{original_title}\" -> \"{chapter_title}\"")
+                chapter['chapter_title'] = chapter_title
             
             logger.debug(f"规范化普通章节编号：索引{idx} -> chapter_number={chapter['chapter_number']}, 标题={chapter['chapter_title']}")
         
@@ -722,9 +1136,58 @@ class AiGenerationService:
         
         for idx, chapter in enumerate(outline_data['chapters']):
             chapter_title = chapter.get('chapter_title', '')
-            is_special = any(special_title in chapter_title or chapter_title == special_title for special_title in special_chapter_titles)
+            # 清理标题用于匹配
+            import re
+            cleaned_title_for_match = chapter_title
+            cleaned_title_for_match = re.sub(r'^第[一二三四五六七八九十]+章\s*', '', cleaned_title_for_match)
+            cleaned_title_for_match = re.sub(r'^\d+\.\d+\.\d+\s+', '', cleaned_title_for_match)
+            cleaned_title_for_match = re.sub(r'^\d+\.\d+\s+', '', cleaned_title_for_match)
+            cleaned_title_for_match = re.sub(r'^\d+[\.\s、]+\s*', '', cleaned_title_for_match)
+            cleaned_title_for_match = re.sub(r'^\d+\s+', '', cleaned_title_for_match)
+            cleaned_title_for_match = cleaned_title_for_match.strip()
             
-            if is_special:
+            # 判断章节类型 - 使用硬编码的关键词列表确保识别准确
+            is_special = any(special_title in cleaned_title_for_match or cleaned_title_for_match == special_title for special_title in special_chapter_titles)
+            front_matter_keywords_hardcoded = ['封面', '诚信声明', '原创性声明', '评审表', '答辩记录表', '中文题目', '英文题目', '[摘要]', '摘要', '[关键词]', '关键词', '目　', '目录']
+            is_front_matter = any(fm_title in cleaned_title_for_match or cleaned_title_for_match == fm_title for fm_title in front_matter_titles) or \
+                             any(kw in cleaned_title_for_match for kw in front_matter_keywords_hardcoded)
+            back_matter_keywords_hardcoded = ['参 考 文 献', '参考文献', '致　', '致谢', '附录']
+            is_back_matter = any(bm_title in cleaned_title_for_match or cleaned_title_for_match == bm_title for bm_title in back_matter_titles) or \
+                           any(kw in cleaned_title_for_match for kw in back_matter_keywords_hardcoded)
+            
+            # 检查结论是否应该有编号
+            is_conclusion = '结论' in cleaned_title_for_match or '结　' in cleaned_title_for_match
+            conclusion_should_have_numbering = False
+            if is_conclusion and format_instructions:
+                try:
+                    application_rules = format_instructions.get('application_rules', {})
+                    special_section_format_rules = application_rules.get('special_section_format_rules', {})
+                    conclusion_config = special_section_format_rules.get('conclusion', {})
+                    conclusion_should_have_numbering = conclusion_config.get('should_have_numbering', False)
+                except Exception as e:
+                    logger.warning(f"读取结论编号配置失败: {str(e)}")
+            
+            if is_conclusion and conclusion_should_have_numbering:
+                # 结论应该有编号，作为正文章节处理
+                found_numbered = None
+                for numbered_chapter in numbered_chapters:
+                    if numbered_chapter.get('chapter_title') == chapter_title:
+                        found_numbered = numbered_chapter
+                        break
+                if found_numbered:
+                    # 结论的编号应该是前面正文章节数量+1
+                    found_numbered['chapter_number'] = numbered_counter
+                    all_chapters.append(found_numbered)
+                    numbered_counter += 1
+                else:
+                    # 如果没找到，创建一个新的结论章节
+                    all_chapters.append({
+                        'chapter_number': numbered_counter,
+                        'chapter_title': chapter_title,
+                        'sections': chapter.get('sections', [])
+                    })
+                    numbered_counter += 1
+            elif is_special or is_front_matter or is_back_matter:
                 # 特殊章节：从special_chapters中找到对应的章节
                 found_special = None
                 for special_chapter in special_chapters:
@@ -1003,9 +1466,10 @@ class AiGenerationService:
 
 ### Markdown格式规范：
 1. **二级标题**：使用 `## 标题` 表示小节标题（对应大纲中的sections）
-   - 如果有小节结构，必须使用 `## 小节标题` 的格式
-   - 例如：`## 1.1 研究背景与意义`
-2. **三级标题**：使用 `### 标题` 表示更细的层次
+   - 如果有小节结构，必须使用 `## 小节编号 小节标题` 的格式
+   - 例如：如果大纲中section_number是"2.1"，section_title是"章节结构概览"，则必须写成：`## 2.1 章节结构概览`
+   - **重要**：必须保留section_number（如"2.1"、"2.2"、"4.1"、"4.2"），不要省略编号
+2. **三级标题**：使用 `### 标题` 表示更细的层次（如果section_number是"2.1.1"格式，则使用三级标题）
 3. **加粗文本**：使用 `**文本**` 表示重要概念或关键词
 4. **段落**：段落之间用空行分隔
 5. **列表**：可以使用 `-` 或 `1.` 表示列表项
@@ -1014,7 +1478,7 @@ class AiGenerationService:
 1. **章节开头**：简要介绍本章的主要内容（1-2段）
 2. **主体内容**：
    - 如果有小节结构，必须按照大纲中的小节顺序组织内容
-   - 每个小节使用 `## 小节标题` 作为二级标题
+   - 每个小节必须使用 `## section_number section_title` 的格式（例如：`## 2.1 章节结构概览`）
    - 小节内容要充实，符合字数要求
 3. **章节结尾**：适当的小结或过渡（1段）
 
@@ -1022,15 +1486,11 @@ class AiGenerationService:
 ```
 本章主要介绍...（章节引言，1-2段）
 
-## 1.1 研究背景与意义
+## 2.1 章节结构概览
 
 （小节内容，多段文字，符合字数要求）
 
-## 1.2 研究内容与方法
-
-（小节内容，多段文字，符合字数要求）
-
-## 1.3 主要结论
+## 2.2 图表索引
 
 （小节内容，多段文字，符合字数要求）
 
@@ -1039,7 +1499,8 @@ class AiGenerationService:
 
 **重要提示**：
 - 如果大纲中提供了小节结构（sections），必须严格按照小节顺序和标题组织内容
-- 每个小节必须使用 `## 小节编号 小节标题` 的格式
+- **每个小节必须使用 `## section_number section_title` 的格式**（例如：`## 2.1 章节结构概览`、`## 4.1 指导教师感谢`）
+- **必须保留section_number，不要省略编号**
 - 确保内容充实，达到字数要求
 - 使用学术语言，保持逻辑清晰
 

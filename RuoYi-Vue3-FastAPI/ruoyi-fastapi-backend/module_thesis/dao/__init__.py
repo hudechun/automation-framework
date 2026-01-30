@@ -10,6 +10,7 @@ from module_thesis.dao.member_dao import (
 )
 from module_thesis.dao.order_dao import ExportRecordDao, FeatureServiceDao, OrderDao
 from module_thesis.dao.template_dao import FormatTemplateDao, TemplateFormatRuleDao, UniversalInstructionSystemDao
+from module_thesis.dao.outline_prompt_template_dao import OutlinePromptTemplateDao
 from module_thesis.dao.thesis_dao import ThesisChapterDao, ThesisDao, ThesisOutlineDao, ThesisVersionDao
 
 __all__ = [
@@ -29,6 +30,8 @@ __all__ = [
     'FormatTemplateDao',
     'TemplateFormatRuleDao',
     'UniversalInstructionSystemDao',
+    # 大纲提示词模板
+    'OutlinePromptTemplateDao',
     # 订单相关DAO
     'OrderDao',
     'FeatureServiceDao',

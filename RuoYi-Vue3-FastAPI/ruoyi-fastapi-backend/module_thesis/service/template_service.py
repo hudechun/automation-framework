@@ -947,18 +947,102 @@ class TemplateService:
                             print(f"  提取的格式指令包含的键: {keys}")
                             logger.info(f"  提取的格式指令包含的键: {keys}")
                     
+                    # 步骤3.5: 提取固定页面（封面、原创性声明等）
+                    step3_5_start = time.time()
+                    print(f"[步骤3.5/5] 开始提取固定页面...")
+                    print(f"  开始时间: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}")
+                    logger.info(f"[步骤3.5/5] 开始提取固定页面...")
+                    logger.info(f"  开始时间: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}")
+                    
+                    special_pages = {}
+                    try:
+                        # 验证 file_path 是否存在
+                        import os
+                        if not os.path.exists(file_path):
+                            error_msg = f"[步骤3.5/5] ✗ 模板文件不存在，无法提取固定页面: {file_path}"
+                            print(error_msg)
+                            logger.error(error_msg)
+                            raise FileNotFoundError(f"模板文件不存在: {file_path}")
+                        
+                        file_size = os.path.getsize(file_path)
+                        print(f"[步骤3.5/5] 模板文件验证: 路径={file_path}, 大小={file_size} 字节")
+                        logger.info(f"[步骤3.5/5] 模板文件验证: 路径={file_path}, 大小={file_size} 字节")
+                        
+                        special_pages = await FormatService.extract_special_pages(file_path, template_id)
+                        step3_5_elapsed = time.time() - step3_5_start
+                        
+                        if special_pages:
+                            print(f"[步骤3.5/5] ✓ 固定页面提取完成")
+                            print(f"  完成时间: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}")
+                            print(f"  耗时: {step3_5_elapsed:.2f} 秒")
+                            print(f"  提取的页面: {list(special_pages.keys())}")
+                            for page_type, page_info in special_pages.items():
+                                print(f"    - {page_type}: {page_info.get('file_path', 'N/A')}")
+                            logger.info(f"[步骤3.5/5] ✓ 固定页面提取完成")
+                            logger.info(f"  完成时间: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}")
+                            logger.info(f"  耗时: {step3_5_elapsed:.2f} 秒")
+                            logger.info(f"  提取的页面: {list(special_pages.keys())}")
+                            
+                            # 将 special_pages 添加到 format_data
+                            if isinstance(format_data, dict):
+                                # 验证 format_data 结构
+                                format_data_keys_before = list(format_data.keys())
+                                print(f"  format_data 添加前包含的键: {format_data_keys_before}")
+                                logger.info(f"  format_data 添加前包含的键: {format_data_keys_before}")
+                                
+                                format_data['special_pages'] = special_pages
+                                
+                                format_data_keys_after = list(format_data.keys())
+                                print(f"  format_data 添加后包含的键: {format_data_keys_after}")
+                                logger.info(f"  format_data 添加后包含的键: {format_data_keys_after}")
+                                
+                                # 验证 special_pages 是否正确添加
+                                if 'special_pages' in format_data:
+                                    special_pages_in_format = format_data['special_pages']
+                                    print(f"  ✓ 已将 special_pages 添加到 format_data")
+                                    print(f"  special_pages 内容: {list(special_pages_in_format.keys())}")
+                                    logger.info(f"  ✓ 已将 special_pages 添加到 format_data")
+                                    logger.info(f"  special_pages 内容: {list(special_pages_in_format.keys())}")
+                                    
+                                    # 验证每个页面的 file_path
+                                    for page_type, page_info in special_pages_in_format.items():
+                                        file_path_in_info = page_info.get('file_path', 'N/A')
+                                        print(f"    - {page_type}: {file_path_in_info}")
+                                        logger.info(f"    - {page_type}: {file_path_in_info}")
+                                else:
+                                    error_msg = "  ✗ special_pages 未成功添加到 format_data"
+                                    print(error_msg)
+                                    logger.error(error_msg)
+                            else:
+                                error_msg = f"  ✗ format_data 不是字典类型，无法添加 special_pages (类型: {type(format_data).__name__})"
+                                print(error_msg)
+                                logger.error(error_msg)
+                        else:
+                            print(f"[步骤3.5/5] ⚠ 未提取到固定页面（可能模板中没有封面、声明等页面）")
+                            logger.info(f"[步骤3.5/5] ⚠ 未提取到固定页面（可能模板中没有封面、声明等页面）")
+                    except Exception as e:
+                        step3_5_elapsed = time.time() - step3_5_start
+                        error_msg = f"[步骤3.5/5] ✗ 固定页面提取失败: {str(e)}"
+                        print(error_msg)
+                        logger.warning(error_msg, exc_info=True)
+                        # 提取失败不影响格式数据保存，继续执行
+                    
                     # 步骤4: 保存格式数据到数据库
                     step4_start = time.time()
                     # 将format_data转换为JSON字符串以便存储
                     format_data_json_str = json.dumps(format_data, ensure_ascii=False, indent=2)
-                    print(f"[步骤4/4] 准备保存格式数据到数据库...")
+                    print(f"[步骤4/5] 准备保存格式数据到数据库...")
                     print(f"  开始时间: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}")
                     print(f"  格式数据JSON字符串长度: {len(format_data_json_str)} 字符")
                     print(f"  模板ID: {template_id}")
-                    logger.info(f"[步骤4/4] 准备保存格式数据到数据库...")
+                    if 'special_pages' in format_data:
+                        print(f"  special_pages 已包含在 format_data 中: {list(format_data['special_pages'].keys())}")
+                    logger.info(f"[步骤4/5] 准备保存格式数据到数据库...")
                     logger.info(f"  开始时间: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}")
                     logger.info(f"  格式数据JSON字符串长度: {len(format_data_json_str)} 字符")
                     logger.info(f"  模板ID: {template_id}")
+                    if 'special_pages' in format_data:
+                        logger.info(f"  special_pages 已包含在 format_data 中: {list(format_data['special_pages'].keys())}")
                     
                     # 查询更新前的状态
                     template_before = await FormatTemplateDao.get_template_by_id(db, template_id)
@@ -1025,6 +1109,8 @@ class TemplateService:
                     print(f"  格式数据已保存到数据库")
                     print(f"  格式数据大小: {len(format_data_json_str)} 字符")
                     print(f"  格式数据更新: {'成功' if format_data_after else '失败（未找到数据）'}")
+                    if 'special_pages' in format_data:
+                        print(f"  固定页面: {list(format_data['special_pages'].keys())}")
                     print("=" * 100)
                     sys.stdout.flush()
                     logger.info("=" * 100)

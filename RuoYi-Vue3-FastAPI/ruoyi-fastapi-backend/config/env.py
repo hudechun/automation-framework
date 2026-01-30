@@ -23,6 +23,8 @@ class AppSettings(BaseSettings):
     app_reload: bool = True
     app_ip_location_query: bool = True
     app_same_time_login: bool = True
+    # 学籍验证对外 H5 基础 URL（报告图、二维码链接前缀），可通过环境变量 VERIFY_BASE_URL 覆盖
+    verify_base_url: str = "http://localhost:80"
 
 
 class JwtSettings(BaseSettings):

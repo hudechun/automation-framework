@@ -1,0 +1,8 @@
+# Report image layout/fill scripts: Pillow + OCR/VL (phase1), Pillow only (phase2)
+Pillow>=10.0.0
+# Phase1 option A: layout analysis with pytesseract (no PyTorch). Install Tesseract-OCR + chi_sim on system.
+pytesseract>=0.3.10
+# Phase1 option B: layout analysis with Qwen3-VL (report_layout_analyze_qwen.py). API key via env QWEN_API_KEY.
+openai>=1.0.0
+# QR code in report (qr_code_placeholder.content)
+qrcode[pil]>=7.0.0

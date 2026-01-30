@@ -574,7 +574,7 @@ const handleGenerate = async (row) => {
     // 草稿状态：检查是否已有大纲
     try {
       const outlineRes = await getOutline(row.thesisId)
-      const outline = outlineRes.data
+      const outline = outlineRes?.data
       
       // 严格判断：大纲数据必须存在且有实际内容
       const outlineData = outline?.outlineStructure || outline?.outlineData
@@ -755,7 +755,7 @@ const checkThesisProgress = async (thesisId) => {
       if (outlineProgress.value > 0 && (currentStatus === 'draft' || !currentStatus)) {
         try {
           const outlineRes = await getOutline(thesisId)
-          const outline = outlineRes.data
+          const outline = outlineRes?.data
           const outlineData = outline?.outlineStructure || outline?.outlineData
           const hasValidOutline = outlineData && 
                                   typeof outlineData === 'object' && 
@@ -877,10 +877,10 @@ const startGenerateContent = async () => {
   try {
     // 先获取大纲，从大纲中提取章节列表
     const outlineRes = await getOutline(currentPaper.value.thesisId)
-    const outline = outlineRes.data
+    const outline = outlineRes?.data
     
-    // 兼容不同的字段命名方式
-    const outlineData = outline.outlineStructure || outline.outlineData || outline
+    // 兼容不同的字段命名方式，使用可选链操作符避免 undefined 错误
+    const outlineData = outline?.outlineStructure || outline?.outlineData || outline
     
     if (!outline || !outlineData || !outlineData.chapters || !Array.isArray(outlineData.chapters)) {
       ElMessage.error('请先生成大纲或大纲格式不正确')
