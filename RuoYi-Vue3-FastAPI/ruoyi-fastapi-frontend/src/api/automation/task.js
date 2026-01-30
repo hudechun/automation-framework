@@ -26,6 +26,9 @@ export function addTask(data) {
   })
 }
 
+// 创建任务（addTask 别名）
+export const createTask = addTask
+
 // 修改任务
 export function updateTask(data) {
   return request({
@@ -107,4 +110,9 @@ export function getExecutionLogs(taskId, params) {
     method: 'get',
     params: params
   })
+}
+
+// 检查客户端连接状态（headful 模式用，未部署 automation 时返回离线）
+export function checkClientStatus() {
+  return Promise.resolve({ data: { online: false, last_seen: null } })
 }

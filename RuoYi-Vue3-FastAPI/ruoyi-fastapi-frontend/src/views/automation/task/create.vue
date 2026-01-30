@@ -205,7 +205,7 @@
                 >
                   <div class="mode-header">
                     <div class="mode-icon-wrapper headless">
-                      <el-icon class="mode-icon"><Server /></el-icon>
+                      <el-icon class="mode-icon"><Cpu /></el-icon>
                     </div>
                     <div class="mode-info">
                       <h3 class="mode-title">无头模式（服务器后台）</h3>
@@ -411,7 +411,7 @@ import { ref, reactive, onMounted, watch } from 'vue'
 import { useRouter } from 'vue-router'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import {
-  Plus, Edit, Document, Setting, Tools, Check, Monitor, Server,
+  Plus, Edit, Document, Setting, Tools, Check, Monitor, Cpu,
   CircleCheck, Warning, Download, QuestionFilled, ArrowLeft,
   ArrowRight, View, More
 } from '@element-plus/icons-vue'

@@ -27,10 +27,19 @@ try:
 except ImportError:
     HAS_QRCODE = False
 
+# 中文字体回退路径：Windows 优先，其次 Linux 常见路径（报告渲染需中文字体，否则会乱码）
 DEFAULT_FONT_PATHS = [
     "C:/Windows/Fonts/simsun.ttc",
     "C:/Windows/Fonts/msyh.ttc",
     "/usr/share/fonts/truetype/wqy/wqy-zenhei.ttc",
+    "/usr/share/fonts/wqy-zenhei/wqy-zenhei.ttc",
+    "/usr/share/fonts/google-noto-cjk/NotoSansCJK-Regular.ttc",
+    "/usr/share/fonts/google-noto/NotoSansCJK-Regular.ttc",
+    "/usr/share/fonts/opentype/noto/NotoSansCJK-Regular.ttc",
+    "/usr/share/fonts/chinese/TrueType/uming.ttc",
+    "/usr/share/fonts/truetype/arphic/uming.ttc",
+    "/usr/share/fonts/truetype/arphic/ukai.ttc",
+    "/System/Library/Fonts/PingFang.ttc",  # macOS
 ]
 
 # 字体名 -> 路径，用于与原型图一致（学籍报告常用仿宋）
