@@ -215,7 +215,7 @@ def fill_template2(
             x0 = int(x_rel * tw)
             y0 = int(y_rel * th)
             size = min(int(w_rel * tw), int(h_rel * th))
-            content = qr_cfg.get("content") or qr_cfg.get("url") or data.get("二维码内容")
+            content = data.get("二维码内容") or qr_cfg.get("content") or qr_cfg.get("url")
             if content and HAS_QRCODE:
                 qr = qrcode.QRCode(version=1, box_size=10, border=1)
                 qr.add_data(str(content).strip())

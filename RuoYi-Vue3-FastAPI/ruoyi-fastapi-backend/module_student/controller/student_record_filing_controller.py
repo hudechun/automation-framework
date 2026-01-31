@@ -212,7 +212,7 @@ async def get_qr_image(
     if not obj:
         raise ServiceException(message="记录不存在")
     base = _verify_base_url()
-    url = f"{base.rstrip('/')}/verify?code={obj.verification_code}"
+    url = f"{base.rstrip('/')}/verify-filing?code={obj.verification_code}"
     png_bytes = _make_qr_png(url)
     filename = _safe_filename(obj.name, obj.verification_code)
     return StreamingResponse(
@@ -243,7 +243,7 @@ async def batch_download_qr(
             obj = await StudentRecordFilingService.get_by_id(query_db, sid)
             if not obj:
                 continue
-            url = f"{base.rstrip('/')}/verify?code={obj.verification_code}"
+            url = f"{base.rstrip('/')}/verify-filing?code={obj.verification_code}"
             png_bytes = _make_qr_png(url)
             filename = _safe_filename(obj.name, obj.verification_code)
             zf.writestr(filename, png_bytes)

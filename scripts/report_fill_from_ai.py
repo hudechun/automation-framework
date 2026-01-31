@@ -318,7 +318,7 @@ def fill_from_ai_config(
             qh = int(h_rel * th)
             # 1:1 正方形：取宽高较小值，避免 w_rel/h_rel 乘不同边导致竖长条
             size = min(qw, qh)
-            content = qr_cfg.get("content") or qr_cfg.get("url") or data.get("二维码内容")
+            content = data.get("二维码内容") or qr_cfg.get("content") or qr_cfg.get("url")
             if content and HAS_QRCODE:
                 qr = qrcode.QRCode(version=1, box_size=10, border=1)
                 qr.add_data(str(content).strip())

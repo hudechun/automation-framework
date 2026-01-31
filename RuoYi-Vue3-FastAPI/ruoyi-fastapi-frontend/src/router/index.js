@@ -65,6 +65,13 @@ export const constantRoutes = [
     hidden: true
   },
   {
+    path: '/verify-filing',
+    component: () => import('@/views/student/verify-filing/index'),
+    name: 'VerifyFiling',
+    meta: { title: '学历备案表验证', noCache: true },
+    hidden: true
+  },
+  {
     path: '',
     component: Layout,
     redirect: '/index',

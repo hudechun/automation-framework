@@ -425,7 +425,7 @@ class StudentRecordFilingService:
             "证书编号": student.certificate_no or "",
             "校（院）长姓名": student.president_name or "",
             "在线验证码": student.verification_code or "",
-            "二维码内容": f"{verify_base_url.rstrip('/')}/verify?code={student.verification_code}",
+            "二维码内容": f"{verify_base_url.rstrip('/')}/verify-filing?code={student.verification_code}",
         }
         with tempfile.TemporaryDirectory() as tmp:
             data_json = os.path.join(tmp, "data.json")

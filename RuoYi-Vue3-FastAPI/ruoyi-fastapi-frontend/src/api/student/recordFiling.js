@@ -96,3 +96,14 @@ export function batchDownloadReport(studentIds) {
     headers: { repeatSubmit: false }
   })
 }
+
+// ========== 对外备案表验证（无需登录） ==========
+export function getVerifyFilingCheck(code) {
+  return request({
+    url: '/verify/filing/check',
+    method: 'get',
+    params: { code },
+    headers: { isToken: false },
+    timeout: 10000
+  })
+}
