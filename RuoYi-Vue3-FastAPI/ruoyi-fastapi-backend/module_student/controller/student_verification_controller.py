@@ -51,10 +51,10 @@ def _safe_filename(name: str, code: str) -> str:
 async def list_students(
     request: Request,
     query_db: Annotated[AsyncSession, DBSessionDependency()],
-    page_num: Annotated[int, Query(ge=1)] = 1,
-    page_size: Annotated[int, Query(ge=1, le=100)] = 10,
+    page_num: Annotated[int, Query(ge=1, alias="pageNum")] = 1,
+    page_size: Annotated[int, Query(ge=1, le=100, alias="pageSize")] = 10,
     name: Annotated[str | None, Query()] = None,
-    verification_code: Annotated[str | None, Query()] = None,
+    verification_code: Annotated[str | None, Query(alias="verificationCode")] = None,
 ):
     q = {"page_num": page_num, "page_size": page_size}
     if name:

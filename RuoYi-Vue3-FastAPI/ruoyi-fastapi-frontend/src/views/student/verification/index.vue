@@ -63,7 +63,7 @@
       :total="total"
       v-model:page="queryParams.pageNum"
       v-model:limit="queryParams.pageSize"
-      @pagination="getList"
+      @pagination="(e) => getList(e)"
     />
 
     <!-- 导入对话框 -->
@@ -297,9 +297,14 @@ function handleSelectionChange(selection) {
   selectedIds.value = selection.map((r) => r.id)
 }
 
-function getList() {
+function getList(paginationEvent) {
   loading.value = true
-  listStudent(queryParams.value)
+  const params = { ...queryParams.value }
+  if (paginationEvent && typeof paginationEvent.page === 'number') {
+    params.pageNum = paginationEvent.page
+    params.pageSize = paginationEvent.limit ?? params.pageSize
+  }
+  listStudent(params)
     .then((res) => {
       studentList.value = res.rows || []
       total.value = res.total ?? 0
