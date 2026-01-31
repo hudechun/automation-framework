@@ -51,3 +51,27 @@ python scripts/report_fill_template.py -t uploads/pic/templete.png -p uploads/pi
 ```bash
 python scripts/report_fill_template.py ... --font C:/Windows/Fonts/simsun.ttc
 ```
+
+---
+
+## 模板2：教育部学历证书电子注册备案表
+
+模板2（templete2.jpg）字段：姓名、性别、出生日期、入学日期、毕（结）业日期、学校名称、专业、学制、层次、学历类别、学习形式、毕（结）业、证书编号、校（院）长姓名、在线验证码、照片、二维码。
+
+### 调整格式（生成 layout_config2.json）
+
+**方式一：从样本图 OCR 分析**
+```bash
+python scripts/report_layout_adjust_template2.py RuoYi-Vue3-FastAPI/ruoyi-fastapi-backend/uploads/pic/yuanxing.jpg -o RuoYi-Vue3-FastAPI/ruoyi-fastapi-backend/uploads/pic/layout_config2.json
+```
+
+**方式二：生成默认布局供手动调整**（样本图不存在时）
+```bash
+python scripts/report_layout_adjust_template2.py --default --template RuoYi-Vue3-FastAPI/ruoyi-fastapi-backend/uploads/pic/templete2.jpg -o RuoYi-Vue3-FastAPI/ruoyi-fastapi-backend/uploads/pic/layout_config2.json
+```
+
+### 填充模板2（使用独立脚本，不影响模板1）
+
+```bash
+python scripts/report_fill_template2.py -t RuoYi-Vue3-FastAPI/ruoyi-fastapi-backend/uploads/pic/templete2.jpg -c RuoYi-Vue3-FastAPI/ruoyi-fastapi-backend/uploads/pic/layout_config2.json -p RuoYi-Vue3-FastAPI/ruoyi-fastapi-backend/uploads/pic/photo.png --data-json scripts/sample_report_data_template2.json -o RuoYi-Vue3-FastAPI/ruoyi-fastapi-backend/uploads/pic/result_template2.png
+```
