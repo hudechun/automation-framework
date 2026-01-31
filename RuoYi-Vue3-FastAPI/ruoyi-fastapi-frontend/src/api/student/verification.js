@@ -17,6 +17,15 @@ export function getStudent(studentId) {
   })
 }
 
+// 编辑学生记录
+export function updateStudent(studentId, data) {
+  return request({
+    url: '/student/verification/' + studentId,
+    method: 'put',
+    data
+  })
+}
+
 // 封装 multipart 请求：删除 Content-Type 让浏览器自动设置 boundary
 function multipartRequest(options) {
   return request({
@@ -65,13 +74,36 @@ export function getReportImageBlob(studentId) {
   })
 }
 
-// 二维码图片（Blob，需鉴权，用于下载）
+// 二维码图片（Blob，需鉴权，用于下载），文件名：姓名_验证码.png
 export function getQrImageBlob(studentId) {
   return request({
     url: '/student/verification/qr/image/' + studentId,
     method: 'get',
     responseType: 'blob',
     timeout: 15000
+  })
+}
+
+// 批量下载二维码（ZIP），每张命名为 姓名_验证码.png
+export function batchDownloadQr(studentIds) {
+  return request({
+    url: '/student/verification/qr/batch-download',
+    method: 'post',
+    data: { studentIds },
+    responseType: 'blob',
+    timeout: 60000
+  })
+}
+
+// 批量下载验证报告图（ZIP），每张命名为 姓名_验证码.png
+export function batchDownloadReport(studentIds) {
+  return request({
+    url: '/student/verification/report/batch-download',
+    method: 'post',
+    data: { studentIds },
+    responseType: 'blob',
+    timeout: 300000,
+    headers: { repeatSubmit: false }
   })
 }
 

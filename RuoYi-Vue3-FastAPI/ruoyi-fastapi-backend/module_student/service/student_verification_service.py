@@ -149,6 +149,27 @@ class StudentVerificationService:
         return await StudentVerificationDao.get_list(db, query_object, is_page)
 
     @classmethod
+    async def update_student(cls, db: AsyncSession, pk: int, data: dict, update_by: str = "") -> None:
+        """更新学生记录；日期字段支持 YYYY-MM-DD 或 XXXX年XX月XX日"""
+        obj = await StudentVerificationDao.get_by_id(db, pk)
+        if not obj:
+            raise ServiceException(message="学生不存在")
+        # 日期字段：valid_until 为 DB Date 类型，其余存字符串 XXXX年XX月XX日
+        update_data = dict(data)
+        if "valid_until" in update_data and update_data["valid_until"] is not None:
+            parsed = cls._parse_valid_until(update_data["valid_until"])
+            if parsed is None:
+                raise ServiceException(message="验证有效日期格式不正确")
+            update_data["valid_until"] = parsed
+        for f in ("birth_date", "enrollment_date", "graduation_date", "update_date"):
+            if f in update_data and update_data[f] is not None and update_data[f] != "":
+                update_data[f] = cls._format_date_for_storage(update_data[f])
+        if update_by:
+            update_data["update_by"] = update_by
+        update_data["update_time"] = datetime.now()
+        await StudentVerificationDao.update_by_id(db, pk, update_data)
+
+    @classmethod
     def _parse_date_value(cls, val: Any) -> date | None:
         """解析任意日期值，返回 date 或 None；与 _parse_valid_until 逻辑一致"""
         return cls._parse_valid_until(val)

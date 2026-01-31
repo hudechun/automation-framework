@@ -41,6 +41,30 @@ class StudentVerificationDetailVO(StudentVerificationListVO):
     qr_image_url: Optional[str] = Field(default=None, description="二维码图片 URL 或 base64")
 
 
+class StudentVerificationUpdateDTO(BaseModel):
+    """编辑学生记录（可更新字段，验证码不可改）"""
+
+    model_config = ConfigDict(alias_generator=to_camel)
+
+    name: Optional[str] = None
+    gender: Optional[str] = None
+    birth_date: Optional[str] = None
+    nation: Optional[str] = None
+    school_name: Optional[str] = None
+    level: Optional[str] = None
+    major: Optional[str] = None
+    duration: Optional[str] = None
+    education_type: Optional[str] = None
+    learning_form: Optional[str] = None
+    branch: Optional[str] = None
+    department: Optional[str] = None
+    enrollment_date: Optional[str] = None
+    graduation_date: Optional[str] = None
+    valid_until: Optional[str] = None  # YYYY-MM-DD 或 XXXX年XX月XX日
+    update_date: Optional[str] = None
+    remark: Optional[str] = None
+
+
 class VerifyCheckVO(BaseModel):
     """对外 H5 验证检查返回"""
 

@@ -42,6 +42,7 @@ service.interceptors.request.use(config => {
     '/common/upload',  // 文件上传（可能包含大文件）
     '/student/verification/import',  // Excel 导入
     '/student/verification/upload-photo',  // 照片上传
+    '/student/verification/report/batch-download',  // 批量下载报告（生成较慢）
     '/thesis/template',  // 模板上传（需要AI解析格式）
     '/thesis/template/.*'  // 模板相关接口（可能包含格式解析）
   ]

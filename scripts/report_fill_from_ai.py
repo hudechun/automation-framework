@@ -292,8 +292,10 @@ def fill_from_ai_config(
         if not isinstance(field, dict):
             continue
         value = data.get(name)
-        if value is None or str(value).strip() == "":
+        if value is None:
             value = (field.get("value_text") or "").strip()
+        elif isinstance(value, str) and value.strip() == "":
+            value = ""
         if not value:
             continue
         vbr = field.get("value_bbox_rel")

@@ -29,10 +29,17 @@
       <el-col :span="1.5">
         <el-button type="primary" plain icon="Upload" @click="handleImport">导入</el-button>
       </el-col>
+      <el-col :span="1.5">
+        <el-button type="success" plain icon="Download" @click="handleBatchDownloadQr">批量下载二维码</el-button>
+      </el-col>
+      <el-col :span="1.5">
+        <el-button type="warning" plain icon="Document" @click="handleBatchDownloadReport">批量下载报告</el-button>
+      </el-col>
       <right-toolbar v-model:showSearch="showSearch" @queryTable="getList" />
     </el-row>
 
-    <el-table v-loading="loading" :data="studentList" border>
+    <el-table ref="tableRef" v-loading="loading" :data="studentList" border @selection-change="handleSelectionChange" row-key="id">
+      <el-table-column type="selection" width="55" align="center" />
       <el-table-column label="ID" align="center" prop="id" width="70" />
       <el-table-column label="姓名" align="center" prop="name" min-width="90" show-overflow-tooltip />
       <el-table-column label="验证码" align="center" prop="verificationCode" width="180" show-overflow-tooltip />
@@ -41,8 +48,9 @@
       <el-table-column label="专业" align="center" prop="major" min-width="100" show-overflow-tooltip />
       <el-table-column label="学习形式" align="center" prop="learningForm" width="90" show-overflow-tooltip />
       <el-table-column label="验证有效日期" align="center" prop="validUntil" width="120" />
-      <el-table-column label="操作" align="center" width="180" fixed="right">
+      <el-table-column label="操作" align="center" width="240" fixed="right">
         <template #default="{ row }">
+          <el-button link type="primary" @click="handleEdit(row)">编辑</el-button>
           <el-button link type="primary" @click="handleViewReport(row)">报告图</el-button>
           <el-button link type="primary" @click="handleDownloadQr(row)">二维码</el-button>
           <el-button link type="primary" @click="handleUploadPhoto(row)">上传照片</el-button>
@@ -109,6 +117,103 @@
       </template>
     </el-dialog>
 
+    <!-- 编辑学生 -->
+    <el-dialog title="编辑学生记录" v-model="editVisible" width="700px" append-to-body destroy-on-close>
+      <el-form ref="editFormRef" :model="editForm" :rules="editRules" label-width="100px">
+        <el-row :gutter="16">
+          <el-col :span="12">
+            <el-form-item label="姓名" prop="name">
+              <el-input v-model="editForm.name" placeholder="姓名" />
+            </el-form-item>
+          </el-col>
+          <el-col :span="12">
+            <el-form-item label="性别" prop="gender">
+              <el-input v-model="editForm.gender" placeholder="性别" />
+            </el-form-item>
+          </el-col>
+          <el-col :span="12">
+            <el-form-item label="出生日期" prop="birthDate">
+              <el-date-picker v-model="editForm.birthDate" type="date" value-format="YYYY-MM-DD" placeholder="出生日期" style="width: 100%" />
+            </el-form-item>
+          </el-col>
+          <el-col :span="12">
+            <el-form-item label="民族" prop="nation">
+              <el-input v-model="editForm.nation" placeholder="民族" />
+            </el-form-item>
+          </el-col>
+          <el-col :span="24">
+            <el-form-item label="学校名称" prop="schoolName">
+              <el-input v-model="editForm.schoolName" placeholder="学校名称" />
+            </el-form-item>
+          </el-col>
+          <el-col :span="12">
+            <el-form-item label="层次" prop="level">
+              <el-input v-model="editForm.level" placeholder="如：专科、本科" />
+            </el-form-item>
+          </el-col>
+          <el-col :span="12">
+            <el-form-item label="专业" prop="major">
+              <el-input v-model="editForm.major" placeholder="专业" />
+            </el-form-item>
+          </el-col>
+          <el-col :span="12">
+            <el-form-item label="学制" prop="duration">
+              <el-input v-model="editForm.duration" placeholder="如：3年" />
+            </el-form-item>
+          </el-col>
+          <el-col :span="12">
+            <el-form-item label="学历类别" prop="educationType">
+              <el-input v-model="editForm.educationType" placeholder="如：普通高等教育" />
+            </el-form-item>
+          </el-col>
+          <el-col :span="12">
+            <el-form-item label="学习形式" prop="learningForm">
+              <el-input v-model="editForm.learningForm" placeholder="如：全日制" />
+            </el-form-item>
+          </el-col>
+          <el-col :span="12">
+            <el-form-item label="分院" prop="branch">
+              <el-input v-model="editForm.branch" placeholder="分院" />
+            </el-form-item>
+          </el-col>
+          <el-col :span="12">
+            <el-form-item label="系所" prop="department">
+              <el-input v-model="editForm.department" placeholder="系所" />
+            </el-form-item>
+          </el-col>
+          <el-col :span="12">
+            <el-form-item label="入学日期" prop="enrollmentDate">
+              <el-date-picker v-model="editForm.enrollmentDate" type="date" value-format="YYYY-MM-DD" placeholder="入学日期" style="width: 100%" />
+            </el-form-item>
+          </el-col>
+          <el-col :span="12">
+            <el-form-item label="预计毕业日期" prop="graduationDate">
+              <el-date-picker v-model="editForm.graduationDate" type="date" value-format="YYYY-MM-DD" placeholder="预计毕业日期" style="width: 100%" />
+            </el-form-item>
+          </el-col>
+          <el-col :span="12">
+            <el-form-item label="验证有效日期" prop="validUntil" required>
+              <el-date-picker v-model="editForm.validUntil" type="date" value-format="YYYY-MM-DD" placeholder="验证有效日期" style="width: 100%" />
+            </el-form-item>
+          </el-col>
+          <el-col :span="12">
+            <el-form-item label="验证码" prop="verificationCode">
+              <el-input v-model="editForm.verificationCode" disabled placeholder="不可修改" />
+            </el-form-item>
+          </el-col>
+          <el-col :span="24">
+            <el-form-item label="备注" prop="remark">
+              <el-input v-model="editForm.remark" type="textarea" :rows="2" placeholder="备注" />
+            </el-form-item>
+          </el-col>
+        </el-row>
+      </el-form>
+      <template #footer>
+        <el-button @click="editVisible = false">取消</el-button>
+        <el-button type="primary" :loading="editLoading" @click="submitEdit">确定</el-button>
+      </template>
+    </el-dialog>
+
     <!-- 报告图预览 -->
     <el-dialog
       v-model="reportVisible"
@@ -126,7 +231,7 @@
 </template>
 
 <script setup name="StudentVerification">
-import { listStudent, importStudents, uploadPhoto, getReportImageBlob, getQrImageBlob } from '@/api/student/verification'
+import { listStudent, updateStudent, importStudents, uploadPhoto, getReportImageBlob, getQrImageBlob, batchDownloadQr, batchDownloadReport } from '@/api/student/verification'
 import { saveAs } from 'file-saver'
 
 const { proxy } = getCurrentInstance()
@@ -153,6 +258,44 @@ const photoFileList = ref([])
 const photoSelectedFile = ref(null)
 const uploadPhotoLoading = ref(false)
 const photoUploadRef = ref(null)
+const tableRef = ref(null)
+const selectedIds = ref([])
+const editVisible = ref(false)
+const editFormRef = ref(null)
+const editLoading = ref(false)
+const editForm = ref({
+  id: null,
+  verificationCode: '',
+  name: '',
+  gender: '',
+  birthDate: '',
+  nation: '',
+  schoolName: '',
+  level: '',
+  major: '',
+  duration: '',
+  educationType: '',
+  learningForm: '',
+  branch: '',
+  department: '',
+  enrollmentDate: '',
+  graduationDate: '',
+  validUntil: '',
+  remark: ''
+})
+const editRules = {
+  name: [{ required: true, message: '请输入姓名', trigger: 'blur' }],
+  validUntil: [{ required: true, message: '请选择验证有效日期', trigger: 'change' }]
+}
+
+function safeFileName(name, code) {
+  const n = (name || '').replace(/[/\\:*?"<>|]/g, '_').trim() || '未命名'
+  return `${n}_${(code || '').trim()}.png`
+}
+
+function handleSelectionChange(selection) {
+  selectedIds.value = selection.map((r) => r.id)
+}
 
 function getList() {
   loading.value = true
@@ -229,12 +372,131 @@ function handleViewReport(row) {
 function handleDownloadQr(row) {
   getQrImageBlob(row.id)
     .then((blob) => {
-      saveAs(blob, `学籍验证码_${row.verificationCode || row.id}.png`)
+      saveAs(blob, safeFileName(row.name, row.verificationCode))
       proxy.$modal.msgSuccess('二维码已下载')
     })
     .catch(() => {
       proxy.$modal.msgError('下载二维码失败')
     })
+}
+
+function handleBatchDownloadQr() {
+  const ids = selectedIds.value
+  if (!ids || ids.length === 0) {
+    proxy.$modal.msgWarning('请先勾选要下载的学生')
+    return
+  }
+  batchDownloadQr(ids)
+    .then((blob) => {
+      saveAs(blob, '学籍验证二维码.zip')
+      proxy.$modal.msgSuccess(`已下载 ${ids.length} 个二维码`)
+    })
+    .catch(() => {
+      proxy.$modal.msgError('批量下载失败')
+    })
+}
+
+function handleBatchDownloadReport() {
+  const ids = selectedIds.value
+  if (!ids || ids.length === 0) {
+    proxy.$modal.msgWarning('请先勾选要下载的学生')
+    return
+  }
+  if (ids.length > 50) {
+    proxy.$modal.msgWarning('单次最多选择 50 个学生')
+    return
+  }
+  proxy.$modal.loading('正在生成报告，请稍候…')
+  batchDownloadReport(ids)
+    .then(async (blob) => {
+      if (blob.type === 'application/json') {
+        const text = await blob.text()
+        let msg = '批量下载报告失败'
+        try {
+          const json = JSON.parse(text)
+          if (json.msg) msg = json.msg
+        } catch (_) {}
+        proxy.$modal.msgError(msg)
+        return
+      }
+      saveAs(blob, '学籍验证报告.zip')
+      proxy.$modal.msgSuccess(`已下载 ${ids.length} 个验证报告`)
+    })
+    .catch((err) => {
+      const msg = err?.response?.data?.msg || err?.msg || err?.message || '批量下载报告失败'
+      proxy.$modal.msgError(typeof msg === 'string' ? msg : '批量下载报告失败')
+    })
+    .finally(() => {
+      proxy.$modal.closeLoading()
+    })
+}
+
+function handleEdit(row) {
+  editForm.value = {
+    id: row.id,
+    verificationCode: row.verificationCode || '',
+    name: row.name || '',
+    gender: row.gender || '',
+    birthDate: row.birthDate ? parseDateForEdit(row.birthDate) : '',
+    nation: row.nation || '',
+    schoolName: row.schoolName || '',
+    level: row.level || '',
+    major: row.major || '',
+    duration: row.duration || '',
+    educationType: row.educationType || '',
+    learningForm: row.learningForm || '',
+    branch: row.branch || '',
+    department: row.department || '',
+    enrollmentDate: row.enrollmentDate ? parseDateForEdit(row.enrollmentDate) : '',
+    graduationDate: row.graduationDate ? parseDateForEdit(row.graduationDate) : '',
+    validUntil: row.validUntil ? parseDateForEdit(row.validUntil) : '',
+    remark: row.remark || ''
+  }
+  editVisible.value = true
+}
+
+function parseDateForEdit(val) {
+  if (!val) return ''
+  if (typeof val === 'string' && /^\d{4}-\d{2}-\d{2}/.test(val)) return val.substring(0, 10)
+  const m = String(val).match(/(\d{4})年(\d{1,2})月(\d{1,2})日/)
+  if (m) return `${m[1]}-${m[2].padStart(2, '0')}-${m[3].padStart(2, '0')}`
+  return val
+}
+
+function submitEdit() {
+  editFormRef.value?.validate((valid) => {
+    if (!valid) return
+    editLoading.value = true
+    const payload = {
+      name: editForm.value.name,
+      gender: editForm.value.gender || undefined,
+      birthDate: editForm.value.birthDate || undefined,
+      nation: editForm.value.nation || undefined,
+      schoolName: editForm.value.schoolName || undefined,
+      level: editForm.value.level || undefined,
+      major: editForm.value.major || undefined,
+      duration: editForm.value.duration || undefined,
+      educationType: editForm.value.educationType || undefined,
+      learningForm: editForm.value.learningForm || undefined,
+      branch: editForm.value.branch || undefined,
+      department: editForm.value.department || undefined,
+      enrollmentDate: editForm.value.enrollmentDate || undefined,
+      graduationDate: editForm.value.graduationDate || undefined,
+      validUntil: editForm.value.validUntil || undefined,
+      remark: editForm.value.remark || undefined
+    }
+    Object.keys(payload).forEach((k) => payload[k] === undefined && delete payload[k])
+    updateStudent(editForm.value.id, payload)
+      .then(() => {
+        proxy.$modal.msgSuccess('修改成功')
+        editVisible.value = false
+        getList()
+      })
+      .catch(() => {
+        proxy.$modal.msgError('修改失败')
+      })
+      .finally(() => { editLoading.value = false })
+  })
 }
 
 function handleUploadPhoto(row) {

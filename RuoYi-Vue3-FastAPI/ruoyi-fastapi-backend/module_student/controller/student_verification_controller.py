@@ -1,12 +1,16 @@
 """
 学籍验证学生管理：列表、详情、导入、导出、下载二维码
 """
+import io
 import os
+import re
 import tempfile
+import zipfile
+from urllib.parse import quote
 from typing import Annotated
 
 import qrcode
-from fastapi import File, Form, Query, Request, UploadFile
+from fastapi import Body, File, Form, Query, Request, UploadFile
 from fastapi.responses import StreamingResponse
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -15,7 +19,7 @@ from common.aspect.pre_auth import PreAuthDependency
 from common.router import APIRouterPro
 from common.vo import DataResponseModel, PageModel, PageResponseModel
 from exceptions.exception import ServiceException
-from module_student.entity.vo.student_verification_vo import StudentVerificationListVO
+from module_student.entity.vo.student_verification_vo import StudentVerificationListVO, StudentVerificationUpdateDTO
 from module_student.service.student_verification_service import StudentVerificationService
 from config.env import AppConfig
 from utils.log_util import logger
@@ -31,6 +35,12 @@ student_verification_controller = APIRouterPro(
 
 def _verify_base_url() -> str:
     return (getattr(AppConfig, "verify_base_url", None) or "http://localhost:80").rstrip("/")
+
+
+def _safe_filename(name: str, code: str) -> str:
+    """生成安全的二维码文件名：姓名_验证码.png"""
+    safe_name = re.sub(r'[/\\:*?"<>|]', "_", (name or "").strip()) or "未命名"
+    return f"{safe_name}_{(code or '').strip()}.png"
 
 
 @student_verification_controller.get(
@@ -82,6 +92,24 @@ async def get_student(
         raise ServiceException(message="学生不存在")
     data = StudentVerificationListVO.model_validate(obj)
     return ResponseUtil.success(data=data.model_dump(by_alias=True))
+
+
+@student_verification_controller.put(
+    "/{student_id}",
+    summary="编辑学生记录",
+)
+async def update_student(
+    request: Request,
+    student_id: int,
+    body: StudentVerificationUpdateDTO,
+    query_db: Annotated[AsyncSession, DBSessionDependency()],
+):
+    data = body.model_dump(by_alias=False, exclude_none=True)
+    if not data:
+        raise ServiceException(message="未提供任何修改字段")
+    await StudentVerificationService.update_student(query_db, student_id, data)
+    await query_db.commit()
+    return ResponseUtil.success(msg="修改成功")
 
 
 @student_verification_controller.post(
@@ -179,9 +207,20 @@ async def get_report_image(
     )
 
 
+def _make_qr_png(url: str) -> bytes:
+    """生成二维码 PNG 二进制"""
+    qr = qrcode.QRCode(version=1, box_size=10, border=1)
+    qr.add_data(url)
+    qr.make(fit=True)
+    img = qr.make_image(fill_color="black", back_color="white")
+    buf = io.BytesIO()
+    img.save(buf, format="PNG")
+    return buf.getvalue()
+
+
 @student_verification_controller.get(
     "/qr/image/{student_id}",
-    summary="下载二维码图片（PNG）",
+    summary="下载二维码图片（PNG），文件名：姓名_验证码.png",
     response_class=StreamingResponse,
 )
 async def get_qr_image(
@@ -194,16 +233,90 @@ async def get_qr_image(
         raise ServiceException(message="学生不存在")
     base = _verify_base_url()
     url = f"{base.rstrip('/')}/verify?code={obj.verification_code}"
-    qr = qrcode.QRCode(version=1, box_size=10, border=1)
-    qr.add_data(url)
-    qr.make(fit=True)
-    img = qr.make_image(fill_color="black", back_color="white")
-    import io
+    png_bytes = _make_qr_png(url)
+    filename = _safe_filename(obj.name, obj.verification_code)
+    return StreamingResponse(
+        iter([png_bytes]),
+        media_type="image/png",
+        headers={"Content-Disposition": f"attachment; filename*=UTF-8''{quote(filename)}"},
+    )
+
+
+@student_verification_controller.post(
+    "/qr/batch-download",
+    summary="批量下载二维码（ZIP），每张命名为 姓名_验证码.png",
+    response_class=StreamingResponse,
+)
+async def batch_download_qr(
+    request: Request,
+    query_db: Annotated[AsyncSession, DBSessionDependency()],
+    student_ids: Annotated[list[int], Body(embed=True, alias="studentIds")],
+):
+    if not student_ids:
+        raise ServiceException(message="请选择要下载的学生")
+    if len(student_ids) > 200:
+        raise ServiceException(message="单次最多下载 200 个")
+    base = _verify_base_url()
     buf = io.BytesIO()
-    img.save(buf, format="PNG")
+    with zipfile.ZipFile(buf, "w", zipfile.ZIP_DEFLATED) as zf:
+        for sid in student_ids:
+            obj = await StudentVerificationService.get_by_id(query_db, sid)
+            if not obj:
+                continue
+            url = f"{base.rstrip('/')}/verify?code={obj.verification_code}"
+            png_bytes = _make_qr_png(url)
+            filename = _safe_filename(obj.name, obj.verification_code)
+            zf.writestr(filename, png_bytes)
     buf.seek(0)
     return StreamingResponse(
         buf,
-        media_type="image/png",
-        headers={"Content-Disposition": "attachment; filename=qr.png"},
+        media_type="application/zip",
+        headers={"Content-Disposition": "attachment; filename=qrcodes.zip"},
+    )
+
+
+@student_verification_controller.post(
+    "/report/batch-download",
+    summary="批量下载验证报告图（ZIP），每张命名为 姓名_验证码.png",
+    response_class=StreamingResponse,
+)
+async def batch_download_report(
+    request: Request,
+    query_db: Annotated[AsyncSession, DBSessionDependency()],
+    student_ids: Annotated[list[int], Body(embed=True, alias="studentIds")],
+):
+    if not student_ids:
+        raise ServiceException(message="请选择要下载的学生")
+    if len(student_ids) > 50:
+        raise ServiceException(message="单次最多下载 50 个报告（生成较慢）")
+    base = _verify_base_url()
+    buf = io.BytesIO()
+    count = 0
+    try:
+        with zipfile.ZipFile(buf, "w", zipfile.ZIP_DEFLATED) as zf:
+            for sid in student_ids:
+                obj = await StudentVerificationService.get_by_id(query_db, sid)
+                if not obj:
+                    continue
+                try:
+                    png_bytes = StudentVerificationService.render_report_image(obj, base)
+                except Exception as e:
+                    logger.warning("batch_download_report skip id=%s: %s", sid, e)
+                    continue
+                filename = _safe_filename(obj.name, obj.verification_code)
+                zf.writestr(filename, png_bytes)
+                count += 1
+        if count == 0:
+            raise ServiceException(message="未能生成任何报告，请检查模板和照片配置")
+    except ServiceException:
+        raise
+    except Exception as e:
+        logger.exception("batch_download_report failed: %s", e)
+        raise ServiceException(message=f"批量生成报告失败：{str(e)}")
+    buf.seek(0)
+    filename_utf8 = quote("学籍验证报告.zip", safe="")
+    return StreamingResponse(
+        buf,
+        media_type="application/zip",
+        headers={"Content-Disposition": f"attachment; filename*=UTF-8''{filename_utf8}"},
     )
